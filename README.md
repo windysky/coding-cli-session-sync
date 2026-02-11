@@ -150,6 +150,8 @@ Note: This project assumes a date-based Codex layout. If you're using `codex-cli
 
 Codex IDs shown in the selection UI are the relative path under `~/.codex/sessions/` (e.g. `2026/02/10`).
 
+Legacy compatibility: older archives may contain leaf-only IDs (e.g. `10`). If that leaf matches multiple sessions on restore, import will fail with an "Ambiguous Codex session id" error. Re-export with a newer version (or select the full relative ID) to resolve.
+
 ### OpenCode
 
 - **Session Directory**: `~/.local/share/opencode/storage/session/global/`
@@ -271,9 +273,9 @@ See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
 
 ### Recent Releases
 
-- **1.6.1** (2026-02-10): Codex ID Fixes + Cleanup Command
-  - Codex session IDs now show as relative paths (e.g. `2026/02/10`) instead of day folders
+- **1.7.0** (2026-02-10): Cleanup Command + Codex ID Fix
   - Added `session-cleanup` for selective deletion with dry-run + confirmations
+  - Codex session IDs now show as relative paths (e.g. `2026/02/10`)
 
 - **1.6.0** (2026-02-10): Claude/Codex Robustness
   - Claude new-format uses `~/.claude/session-env` when present

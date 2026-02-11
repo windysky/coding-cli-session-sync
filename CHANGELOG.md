@@ -29,6 +29,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Codex session IDs now use the relative path under `.codex/sessions/` (prevents IDs like `08`, `09`, `10`)
 - Archive filenames are sanitized when session IDs contain path separators
 
+## [1.7.0] - 2026-02-10
+
+### Added
+- `session-cleanup` command for selective deletion (supports `--dry-run` and typed confirmation)
+
+### Fixed
+- Codex discovery now identifies sessions by locating directories that contain `rollout-*.jsonl`
+- Codex session IDs now use the relative path under `.codex/sessions/` (fixes broken IDs like `08`, `09`, `10`)
+
+### Changed
+- `setup.sh` now prints `session-cleanup` in the post-install command list
+- Import supports both full Codex relative IDs and legacy leaf-only IDs (fails fast on ambiguous legacy IDs)
+
 ## [1.5.0] - 2026-02-07
 
 ### Added

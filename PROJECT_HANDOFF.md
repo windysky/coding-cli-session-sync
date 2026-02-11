@@ -18,7 +18,7 @@
   - Export/import for Claude Code, Codex, and OpenCode (see `README.md`).
   - Multi-session archives + selective import.
   - Checksum validation and credential filtering.
-  - Setup/install via `setup.sh` which installs `session-export` and `session-import`.
+  - Setup/install via `setup.sh` which installs `session-export`, `session-import`, and `session-cleanup`.
   - Backward-compatible repo-root wrappers: `export_session.py` and `import_session.py`.
   - Quality gates currently pass: `pytest`, `ruff check session_sync/ tests/`, `mypy session_sync/`.
   - Distribution metadata cleanup: `LICENSE` added; `pyproject.toml` author/email updated; stdlib-only dependency removed.
@@ -170,20 +170,42 @@
 - Problems encountered and how they were addressed:
   - None.
 
+### Session Update 2026-02-10 23:12 CST
+
+- Goals for the session:
+  - Address remaining follow-ups (handoff staleness, setup output, Python runtime compatibility, Codex doc clarity) and cut a minor release.
+- What was implemented or changed:
+  - `PROJECT_HANDOFF.md` refreshed: outstanding tasks cleaned up; risks updated.
+  - `setup.sh` now prints `session-cleanup` as an installed command.
+  - `session-cleanup` kept compatible with Python `>=3.8` (removed `X | None` syntax).
+  - Codex legacy-ID ambiguity documented in `README.md`.
+  - Version bumped to `1.7.0` and release notes updated.
+- Files/modules/functions touched:
+  - `PROJECT_HANDOFF.md`
+  - `PROJECT_LOG.md`
+  - `setup.sh`
+  - `session_sync/cleanup_session.py`
+  - `README.md`
+  - `CHANGELOG.md`
+  - `session_sync/__init__.py`
+  - `pyproject.toml`
+- Key technical decisions:
+  - Keep runtime `requires-python` at `>=3.8`; avoid Python 3.10-only syntax in runtime modules.
+- Problems encountered and how they were addressed:
+  - None.
+
 ## 4. Outstanding Tasks (living section — update as needed)
 
 Prioritized next steps:
 
-1. Optional: review diffs and create commits.
-
-2. Optional: push to GitHub.
+- None.
 
 ## 5. Open Questions & Risks (living section — update as needed)
 
 - Confirm the canonical GitHub repo URL (now set for `origin`, and used in `README.md`, `pyproject.toml`, `CHANGELOG.md`).
-- Risk: large diffs due to `ruff` autofix; review before committing.
 - Packaging metadata: author/email defaults were set; adjust if you want a different attribution.
 - Python compatibility: runtime remains `>=3.8`, but mypy analysis runs as 3.9.
+- Codex legacy IDs: importing older archives that contain leaf-only IDs may fail if ambiguous; re-export with a newer version to resolve.
 
 ## 6. Restart Instructions (living section — update as needed)
 

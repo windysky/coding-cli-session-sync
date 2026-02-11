@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "session_sync"
-version = "1.6.1"
+version = "1.7.0"
 description = "Session Synchronization System for Claude Code with enhanced security and thread-safety"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -92,6 +92,7 @@ select = [
 ignore = [
     "E501",  # line too long, handled by black
     "B008",  # do not perform function calls in argument defaults
+    "UP045", # avoid `X | None` (Python 3.10+) for runtime >=3.8
 ]
 
 [tool.ruff.lint.pydocstyle]

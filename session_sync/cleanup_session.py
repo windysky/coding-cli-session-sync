@@ -11,6 +11,7 @@ import json
 import os
 import shutil
 from pathlib import Path
+from typing import Optional
 
 from session_sync.core import Session, ToolType, discover_sessions
 from session_sync.file_lock import FileLock
@@ -162,7 +163,7 @@ def _delete_codex_session(session: Session, session_dir: Path, dry_run: bool) ->
     return 1
 
 
-def _display_cleanup_menu(sessions: list[Session]) -> list[Session] | None:
+def _display_cleanup_menu(sessions: list[Session]) -> Optional[list[Session]]:
     if not sessions:
         print_error("No sessions found")
         return None

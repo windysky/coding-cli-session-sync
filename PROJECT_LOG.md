@@ -74,3 +74,12 @@ Do not edit past entries; append new sessions at the end.
 
 - Version bumped to `1.6.1` for Codex ID fixes + cleanup command.
 - Release notes updated: `CHANGELOG.md`, `README.md`.
+
+## Session 2026-02-10 23:12 CST
+
+- Addressed remaining follow-ups:
+  - `PROJECT_HANDOFF.md` refreshed (outstanding tasks + risks).
+  - `setup.sh` output now includes `session-cleanup`.
+  - `session-cleanup` syntax adjusted to remain compatible with Python `>=3.8`.
+  - Codex legacy-ID ambiguity documented in `README.md`.
+- Version bumped to `1.7.0` and release notes updated.
