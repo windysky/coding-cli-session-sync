@@ -24,6 +24,8 @@
   - Distribution metadata cleanup: `LICENSE` added; `pyproject.toml` author/email updated; stdlib-only dependency removed.
   - Local repo hygiene: `.gitignore` updated to ignore local artifacts; `origin` remote updated to renamed GitHub repo.
   - Claude/Codex robustness: Claude uses `session-env` when present; Codex sessions preserved under `.codex/sessions/YYYY/MM/`; path override flags added.
+  - Codex session IDs now use the relative path under `.codex/sessions/` (e.g. `2026/02/10`), and archive filenames are sanitized when IDs contain path separators.
+  - Session deletion: `session-cleanup` command added (selective, tool-specific, destructive).
 - Partially implemented features:
   - None.
 - Not started items:

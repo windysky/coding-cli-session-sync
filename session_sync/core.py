@@ -8,6 +8,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import tarfile
 import threading
 from datetime import datetime
@@ -48,6 +49,15 @@ _AUTH_FILE_PATTERNS = [
     "cookies.json",
     "local_storage.json",
 ]
+
+
+_FILENAME_SAFE_RE = re.compile(r"[^a-zA-Z0-9._-]+")
+
+
+def _sanitize_filename_component(value: str) -> str:
+    value = value.replace("/", "-").replace("\\", "-")
+    value = _FILENAME_SAFE_RE.sub("-", value).strip("-.")
+    return value or "session"
 
 
 class Session:
@@ -630,52 +640,40 @@ def discover_sessions(
             pass
 
     elif tool == "codex":
-        # Codex sessions are organized by year/month in the sessions directory
-        # Use os.scandir() for ~3x performance improvement vs Path.iterdir()
-        try:
-            with os.scandir(str(session_dir)) as year_entries:
-                for year_entry in year_entries:
+        stack = [session_dir]
+
+        while stack and len(sessions) < max_sessions:
+            current = stack.pop()
+
+            try:
+                has_rollout = False
+                subdirs = []
+
+                with os.scandir(str(current)) as entries:
+                    for entry in entries:
+                        if entry.is_file():
+                            if entry.name.startswith(
+                                "rollout-"
+                            ) and entry.name.endswith(".jsonl"):
+                                has_rollout = True
+                                break
+                        elif entry.is_dir():
+                            subdirs.append(Path(entry.path))
+
+                if has_rollout:
+                    session_id = current.relative_to(session_dir).as_posix()
+                    session = Session(session_id, current, tool="codex")
+                    if session.conversation_file.is_file():
+                        sessions.append(session)
+                    continue
+
+                for subdir in reversed(subdirs):
                     if len(sessions) >= max_sessions:
                         break
-                    # Year directories are named with digits (e.g., "2024", "2025")
-                    if year_entry.is_dir() and year_entry.name.isdigit():
-                        try:
-                            with os.scandir(year_entry.path) as month_entries:
-                                for month_entry in month_entries:
-                                    if len(sessions) >= max_sessions:
-                                        break
-                                    # Month directories are named with digits (e.g., "01", "12")
-                                    if (
-                                        month_entry.is_dir()
-                                        and month_entry.name.isdigit()
-                                    ):
-                                        try:
-                                            with os.scandir(
-                                                month_entry.path
-                                            ) as session_entries:
-                                                for session_entry in session_entries:
-                                                    if len(sessions) >= max_sessions:
-                                                        break
-                                                    # Session directories
-                                                    if session_entry.is_dir():
-                                                        session_path = Path(
-                                                            session_entry.path
-                                                        )
-                                                        # Use the directory name as session_id
-                                                        session = Session(
-                                                            session_entry.name,
-                                                            session_path,
-                                                            tool="codex",
-                                                        )
-                                                        # Early termination: only add if conversation file exists and is a file
-                                                        if session.conversation_file.is_file():
-                                                            sessions.append(session)
-                                        except OSError:
-                                            continue
-                        except OSError:
-                            continue
-        except OSError:
-            pass
+                    stack.append(subdir)
+
+            except (OSError, ValueError):
+                continue
 
     else:
         # Claude (default) - handle both old and new formats
@@ -1013,7 +1011,8 @@ def create_archive(
     """
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     tool_prefix = session.tool
-    archive_filename = f"{tool_prefix}-session-{session.session_id}-{timestamp}.tgz"
+    safe_id = _sanitize_filename_component(session.session_id)
+    archive_filename = f"{tool_prefix}-session-{safe_id}-{timestamp}.tgz"
     archive_path = output_dir / archive_filename
 
     import gzip
@@ -1090,7 +1089,10 @@ def create_archive_multiple(
     Raises:
         IOError: If archive creation fails
     """
-    archive_path = output_dir / archive_name
+    safe_archive_name = _sanitize_filename_component(archive_name)
+    if not safe_archive_name.endswith(".tgz"):
+        safe_archive_name = safe_archive_name + ".tgz"
+    archive_path = output_dir / safe_archive_name
 
     import shutil
     import tempfile
@@ -1118,7 +1120,7 @@ def create_archive_multiple(
             export_timestamp=datetime.now(),
             source_hostname=hostname,
             session=representative_session,
-            archive_filename=archive_name,
+            archive_filename=safe_archive_name,
             checksum_sha256=checksum,
             size_bytes=archive_path.stat().st_size,
             file_count=file_count,

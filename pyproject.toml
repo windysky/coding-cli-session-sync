@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "session_sync"
-version = "1.6.0"
+version = "1.6.1"
 description = "Session Synchronization System for Claude Code with enhanced security and thread-safety"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -43,6 +43,7 @@ Issues = "https://github.com/windysky/coding-cli-session-sync/issues"
 [project.scripts]
 session-export = "session_sync.export_session:main"
 session-import = "session_sync.import_session:main"
+session-cleanup = "session_sync.cleanup_session:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

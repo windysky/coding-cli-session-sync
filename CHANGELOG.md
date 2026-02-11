@@ -19,6 +19,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Codex archives now store session data under a `.codex/` root to make restores unambiguous
 
+## [1.6.1] - 2026-02-10
+
+### Added
+- `session-cleanup` command for selective deletion (supports `--dry-run` and typed confirmation)
+
+### Fixed
+- Codex session discovery now identifies sessions by locating directories that contain `rollout-*.jsonl`
+- Codex session IDs now use the relative path under `.codex/sessions/` (prevents IDs like `08`, `09`, `10`)
+- Archive filenames are sanitized when session IDs contain path separators
+
 ## [1.5.0] - 2026-02-07
 
 ### Added

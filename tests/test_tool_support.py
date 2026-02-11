@@ -145,8 +145,9 @@ class TestCodexSession:
     def test_discover_codex_sessions(self, tmp_path):
         """Test discovering Codex sessions."""
         # Create Codex-style directory structure
+        sessions_root = tmp_path / ".codex" / "sessions"
         for i in range(2):
-            year_dir = tmp_path / "2026"
+            year_dir = sessions_root / "2026"
             year_dir.mkdir(parents=True, exist_ok=True)
             month_dir = year_dir / f"{i + 1:02d}"
             month_dir.mkdir()
@@ -156,10 +157,11 @@ class TestCodexSession:
                 session_path.mkdir()
                 (session_path / f"rollout-{i}-{j}.jsonl").write_text('{"test": "data"}')
 
-        sessions = discover_sessions(tmp_path, tool="codex")
+        sessions = discover_sessions(sessions_root, tool="codex")
 
         assert len(sessions) == 4
         assert all(s.tool == "codex" for s in sessions)
+        assert all("/" in s.session_id for s in sessions)
 
 
 class TestToolMetadata:

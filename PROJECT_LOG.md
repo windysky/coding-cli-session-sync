@@ -63,3 +63,14 @@ Do not edit past entries; append new sessions at the end.
 
 - Bumped version to `1.6.0`.
 - Added release notes for `1.6.0` in `CHANGELOG.md` and `README.md`.
+
+## Session 2026-02-10 22:56 CST
+
+- Fixed Codex session identification so IDs are the relative path under `.codex/sessions/` (prevents day/month directories from showing up as the session ID).
+- Made archive filenames safe even when session IDs contain path separators.
+- Added `session-cleanup` command for selective, tool-specific session deletion (supports `--dry-run` and a typed `DELETE` confirmation).
+
+## Session 2026-02-10 22:58 CST
+
+- Version bumped to `1.6.1` for Codex ID fixes + cleanup command.
+- Release notes updated: `CHANGELOG.md`, `README.md`.

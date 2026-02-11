@@ -36,7 +36,7 @@ cd coding-cli-session-sync
 
 The setup script will:
 - Install the package in editable mode to `~/.local/bin/`
-- Create `session-export` and `session-import` commands
+- Create `session-export`, `session-import`, and `session-cleanup` commands
 - Ensure `~/.local/bin` is in your PATH
 
 **Note**: If `~/.local/bin` is not in your PATH, add this to your `~/.bashrc` or `~/.zshrc`:
@@ -111,6 +111,27 @@ The script will:
 - `D {number}` or `D {range}` to delete archives (e.g., `D 1`, `D 1-5`, `D 1,3,5`)
 - `Q` to quit
 
+### Deleting Sessions (Destructive)
+
+To delete sessions from the local machine:
+
+```bash
+session-cleanup
+```
+
+Safe usage examples:
+
+```bash
+# Preview what would be deleted
+session-cleanup --tool codex --dry-run
+
+# Apply deletion (requires typing DELETE)
+session-cleanup --tool claude
+
+# Non-interactive confirmation (dangerous)
+session-cleanup --tool opencode --yes
+```
+
 ## Tool-Specific Details
 
 ### Claude Code
@@ -126,6 +147,8 @@ The script will:
 - **Session ID Format**: Directory name (variable length)
 
 Note: This project assumes a date-based Codex layout. If you're using `codex-cli 0.98.0` (or another build) and the layout differs, use `--config-dir` / `--session-dir` overrides.
+
+Codex IDs shown in the selection UI are the relative path under `~/.codex/sessions/` (e.g. `2026/02/10`).
 
 ### OpenCode
 
@@ -247,6 +270,10 @@ MIT License - See LICENSE file for details
 See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
 
 ### Recent Releases
+
+- **1.6.1** (2026-02-10): Codex ID Fixes + Cleanup Command
+  - Codex session IDs now show as relative paths (e.g. `2026/02/10`) instead of day folders
+  - Added `session-cleanup` for selective deletion with dry-run + confirmations
 
 - **1.6.0** (2026-02-10): Claude/Codex Robustness
   - Claude new-format uses `~/.claude/session-env` when present

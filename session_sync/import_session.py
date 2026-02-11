@@ -628,16 +628,17 @@ def select_sessions_from_archive(
         config_dir = None
 
     existing_codex_ids: Set[str] = set()
+    existing_codex_leaf_ids: Set[str] = set()
     if tool == "codex" and session_dir is not None and session_dir.exists():
         try:
-            existing_codex_ids = {
-                s.session_id
-                for s in discover_sessions(
-                    session_dir, tool="codex", max_sessions=200000
-                )
-            }
+            discovered = discover_sessions(
+                session_dir, tool="codex", max_sessions=200000
+            )
+            existing_codex_ids = {s.session_id for s in discovered}
+            existing_codex_leaf_ids = {s.session_id.split("/")[-1] for s in discovered}
         except Exception:
             existing_codex_ids = set()
+            existing_codex_leaf_ids = set()
 
     # Pre-check which sessions exist locally and auto-select new ones
     session_exists = []
@@ -659,7 +660,10 @@ def select_sessions_from_archive(
                 session_path = session_dir / f"{session_id_str}.json"
                 exists_locally = session_path.exists()
             elif tool == "codex":
-                exists_locally = session_id_str in existing_codex_ids
+                exists_locally = (
+                    session_id_str in existing_codex_ids
+                    or session_id_str.split("/")[-1] in existing_codex_leaf_ids
+                )
         session_exists.append(exists_locally)
 
     # Auto-select sessions that DON'T exist locally (smart default)
@@ -1082,15 +1086,19 @@ def check_any_session_exists(archive: "Archive") -> bool:
 
     if tool == "codex" and session_dir.exists():
         try:
-            existing_ids = {
-                s.session_id
-                for s in discover_sessions(
-                    session_dir, tool="codex", max_sessions=200000
-                )
-            }
+            discovered = discover_sessions(
+                session_dir, tool="codex", max_sessions=200000
+            )
+            existing_ids = {s.session_id for s in discovered}
+            existing_leaf_ids = {s.session_id.split("/")[-1] for s in discovered}
         except Exception:
             existing_ids = set()
-        return any(session_id in existing_ids for session_id in session_ids)
+            existing_leaf_ids = set()
+        return any(
+            (session_id in existing_ids)
+            or (session_id.split("/")[-1] in existing_leaf_ids)
+            for session_id in session_ids
+        )
 
     # Check if any session exists locally
     for session_id in session_ids:
@@ -1189,14 +1197,33 @@ def install_codex_sessions_from_extracted(
     target_sessions_root = target_codex_dir / "sessions"
     to_copy: List[Path] = []
 
+    legacy_ids = {sid for sid in selected_session_ids if "/" not in sid}
+    full_ids = {sid for sid in selected_session_ids if "/" in sid}
+    legacy_matches: Dict[str, List[str]] = {}
+
     for candidate in extracted_sessions_root.rglob("*"):
         if not candidate.is_dir():
             continue
         if not list(candidate.glob("rollout-*.jsonl")):
             continue
-        if selected_session_ids and candidate.name not in selected_session_ids:
+        candidate_id = candidate.relative_to(extracted_sessions_root).as_posix()
+
+        if selected_session_ids:
+            if full_ids and candidate_id in full_ids:
+                to_copy.append(candidate)
+                continue
+            if legacy_ids and candidate.name in legacy_ids:
+                legacy_matches.setdefault(candidate.name, []).append(candidate_id)
+                to_copy.append(candidate)
+                continue
             continue
         to_copy.append(candidate)
+
+    for legacy_id, matches in legacy_matches.items():
+        if len(matches) > 1:
+            raise OSError(
+                f"Ambiguous Codex session id '{legacy_id}' matches multiple sessions: {matches[:5]}"
+            )
 
     if not to_copy:
         raise OSError("No Codex sessions found in extracted archive")

@@ -6,9 +6,19 @@ to .tgz archives that can be transferred to another machine.
 """
 
 import argparse
+import re
 import sys
 from pathlib import Path
 from typing import List, Optional, Set
+
+_FILENAME_SAFE_RE = re.compile(r"[^a-zA-Z0-9._-]+")
+
+
+def _sanitize_filename_component(value: str) -> str:
+    value = value.replace("/", "-").replace("\\", "-")
+    value = _FILENAME_SAFE_RE.sub("-", value).strip("-.")
+    return value or "session"
+
 
 # Graceful import error handling
 try:
@@ -461,9 +471,8 @@ def main() -> int:
     if len(selected_sessions) == 1:
         selected_session = selected_sessions[0]
         tool_prefix = selected_session.tool
-        archive_name = (
-            f"{tool_prefix}-session-{selected_session.session_id}-{timestamp}.tgz"
-        )
+        safe_id = _sanitize_filename_component(selected_session.session_id)
+        archive_name = f"{tool_prefix}-session-{safe_id}-{timestamp}.tgz"
     else:
         tool_prefix = selected_sessions[0].tool if selected_sessions else "claude"
         if len(selected_sessions) == len(sessions):
