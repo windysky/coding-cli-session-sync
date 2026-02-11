@@ -29,8 +29,8 @@ This system provides command-line tools that allow you to:
 Run the setup script:
 
 ```bash
-git clone <repository-url>
-cd session_sync
+git clone https://github.com/windysky/coding-cli-session-sync.git
+cd coding-cli-session-sync
 ./setup.sh
 ```
 
@@ -177,7 +177,7 @@ If OneDrive doesn't sync automatically:
 This is fixed in version 1.5.0 (BUG-005, BUG-004). Ensure you have the latest version:
 
 ```bash
-cd /path/to/session_sync
+cd /path/to/coding-cli-session-sync
 git pull
 ./setup.sh
 ```
@@ -187,7 +187,7 @@ git pull
 ### Project Structure
 
 ```
-session_sync/
+coding-cli-session-sync/
 ├── session_sync/
 │   ├── __init__.py          # Package initialization
 │   ├── core.py              # Core functionality with multi-tool support

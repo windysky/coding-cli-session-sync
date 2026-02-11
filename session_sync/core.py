@@ -1,5 +1,4 @@
-"""
-Core functionality for session synchronization.
+"""Core functionality for session synchronization.
 
 This module provides the core data structures and utilities for
 exporting and importing sessions from multiple AI tools (codex, opencode).
@@ -13,7 +12,7 @@ import tarfile
 import threading
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Literal
+from typing import Any, Dict, List, Literal, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -61,8 +60,7 @@ class Session:
         tool: ToolType = "claude",
         history_data: Optional[Dict[str, Any]] = None,
     ):
-        """
-        Initialize a Session.
+        """Initialize a Session.
 
         Args:
             session_id: Unique session identifier
@@ -133,6 +131,7 @@ class Session:
             file_size = history_file.stat().st_size
             if file_size > MAX_HISTORY_FILE_SIZE:
                 import logging
+
                 logging.warning(
                     f"History file {history_file} exceeds maximum size "
                     f"({file_size} > {MAX_HISTORY_FILE_SIZE} bytes). "
@@ -156,13 +155,16 @@ class Session:
 
         # Release lock before file I/O to allow concurrent reads
         try:
-            with open(history_file, "r") as f:
+            with open(history_file) as f:
                 for line in f:
                     line = line.strip()
                     if line:
                         try:
                             data = json.loads(line)
-                            if data.get("sessionId") == self.session_id:
+                            if (
+                                isinstance(data, dict)
+                                and data.get("sessionId") == self.session_id
+                            ):
                                 self._history_data = data
                                 # Cache the result for future lookups
                                 # Thread-safe cache update: Use lock for atomic write
@@ -171,7 +173,7 @@ class Session:
                                 return data
                         except json.JSONDecodeError:
                             continue
-        except IOError:
+        except OSError:
             pass
 
         # Cache the negative result (None) to avoid repeated scans
@@ -192,7 +194,8 @@ class Session:
                 # New format - get name from history.jsonl 'display' field
                 history_data = self._load_history_data()
                 if history_data:
-                    display = history_data.get("display", "")
+                    display_val = history_data.get("display")
+                    display = display_val if isinstance(display_val, str) else ""
                     # Clean up the display name (remove newlines, truncate if too long)
                     display = display.replace("\n", " ").strip()
                     if len(display) > 100:
@@ -203,10 +206,17 @@ class Session:
                 # Old format - read from JSON file
                 if self.conversation_file.exists():
                     try:
-                        with open(self.conversation_file, "r") as f:
+                        with open(self.conversation_file) as f:
                             data = json.load(f)
-                            return data.get("title", self.session_id)
-                    except (json.JSONDecodeError, IOError):
+                            title = (
+                                data.get("title") if isinstance(data, dict) else None
+                            )
+                            return (
+                                title
+                                if isinstance(title, str) and title
+                                else self.session_id
+                            )
+                    except (OSError, json.JSONDecodeError):
                         pass
                 return self.session_id
 
@@ -216,23 +226,26 @@ class Session:
         try:
             if self.tool == "opencode":
                 # OpenCode format: JSON file with 'title' field
-                with open(self.conversation_file, "r") as f:
+                with open(self.conversation_file) as f:
                     data = json.load(f)
-                    return data.get("title", self.session_id)
+                    title = data.get("title") if isinstance(data, dict) else None
+                    return (
+                        title if isinstance(title, str) and title else self.session_id
+                    )
             elif self.tool == "codex":
                 # Codex format: JSONL file - use directory name or session ID
                 # Try to get the first line as a hint
                 try:
-                    with open(self.conversation_file, "r") as f:
+                    with open(self.conversation_file) as f:
                         first_line = f.readline().strip()
                         if first_line:
                             data = json.loads(first_line)
                             # Could use session_id from data, but directory name is clearer
                             pass
-                except (json.JSONDecodeError, IOError):
+                except (OSError, json.JSONDecodeError):
                     pass
                 return self.session_id
-        except (json.JSONDecodeError, IOError):
+        except (OSError, json.JSONDecodeError):
             pass
 
         return self.session_id
@@ -269,22 +282,20 @@ class Session:
             # For opencode, read from JSON file
             if self.conversation_file.exists():
                 try:
-                    with open(self.conversation_file, "r") as f:
+                    with open(self.conversation_file) as f:
                         data = json.load(f)
-                        if "createdAt" in data:
-                            return datetime.fromisoformat(data["createdAt"])
-                except (json.JSONDecodeError, IOError, ValueError):
+                        created_at_val = (
+                            data.get("createdAt") if isinstance(data, dict) else None
+                        )
+                        if isinstance(created_at_val, str):
+                            return datetime.fromisoformat(created_at_val)
+                except (OSError, json.JSONDecodeError, ValueError):
                     pass
             return None
         elif self.tool == "codex":
             # For codex, use directory creation time
             if self.session_path.is_dir():
                 return datetime.fromtimestamp(self.session_path.stat().st_ctime)
-            return None
-        else:
-            # Legacy format, use conversation file creation time
-            if self.conversation_file.exists():
-                return datetime.fromtimestamp(self.conversation_file.stat().st_ctime)
             return None
 
     @property
@@ -307,11 +318,14 @@ class Session:
             # For opencode, read from JSON file
             if self.conversation_file.exists():
                 try:
-                    with open(self.conversation_file, "r") as f:
+                    with open(self.conversation_file) as f:
                         data = json.load(f)
-                        if "updatedAt" in data:
-                            return datetime.fromisoformat(data["updatedAt"])
-                except (json.JSONDecodeError, IOError, ValueError):
+                        updated_at_val = (
+                            data.get("updatedAt") if isinstance(data, dict) else None
+                        )
+                        if isinstance(updated_at_val, str):
+                            return datetime.fromisoformat(updated_at_val)
+                except (OSError, json.JSONDecodeError, ValueError):
                     pass
             # Fallback to file modification time
             if self.conversation_file.exists():
@@ -348,12 +362,6 @@ class Session:
             # If directory is empty, use a minimal size estimate
             if total_size == 0:
                 total_size = 1024  # Minimal placeholder size
-        else:
-            # Legacy claude, sum all files in session directory
-            if self.session_path.exists():
-                for file in self.session_path.rglob("*"):
-                    if file.is_file():
-                        total_size += file.stat().st_size
         return total_size
 
     def to_dict(self) -> Dict[str, Any]:
@@ -384,8 +392,7 @@ class Metadata:
         size_bytes: int,
         file_count: int,
     ):
-        """
-        Initialize metadata.
+        """Initialize metadata.
 
         Args:
             export_timestamp: When the archive was created
@@ -452,7 +459,7 @@ class Metadata:
     @classmethod
     def load(cls, path: Path) -> "Metadata":
         """Load metadata from JSON file."""
-        with open(path, "r") as f:
+        with open(path) as f:
             data = json.load(f)
 
         # Get tool type from metadata (default to 'claude' for backward compatibility)
@@ -468,7 +475,7 @@ class Metadata:
         elif tool == "codex":
             # For codex, we need to find the session directory
             # This will be resolved during import
-            session_path = Path(f"~/.codex/sessions").expanduser()
+            session_path = Path("~/.codex/sessions").expanduser()
         else:
             # For claude, use traditional path
             session_path = Path(
@@ -492,8 +499,7 @@ class Archive:
     """Represents a session archive file."""
 
     def __init__(self, archive_path: Path):
-        """
-        Initialize archive.
+        """Initialize archive.
 
         Args:
             archive_path: Path to the archive file
@@ -514,8 +520,8 @@ class Archive:
                 file = tar.extractfile(member)
                 if file:
                     # Create a temporary file to load metadata with secure permissions
-                    import tempfile
                     import os
+                    import tempfile
 
                     # Use mkstemp with explicit mode 0o600 for secure file creation
                     fd, tmp_path_str = tempfile.mkstemp(suffix=".json", text=True)
@@ -526,7 +532,7 @@ class Archive:
                         os.chmod(fd, 0o600)
 
                         # Write the file content
-                        with os.fdopen(fd, 'w') as f:
+                        with os.fdopen(fd, "w") as f:
                             f.write(file.read().decode("utf-8"))
 
                         # Load metadata
@@ -541,8 +547,7 @@ class Archive:
         return None
 
     def validate_checksum(self, expected_checksum: str) -> bool:
-        """
-        Validate archive checksum.
+        """Validate archive checksum.
 
         Args:
             expected_checksum: Expected SHA-256 checksum
@@ -555,8 +560,7 @@ class Archive:
 
 
 def calculate_checksum(file_path: Path) -> str:
-    """
-    Calculate SHA-256 checksum of a file.
+    """Calculate SHA-256 checksum of a file.
 
     Args:
         file_path: Path to file
@@ -576,8 +580,7 @@ def discover_sessions(
     tool: ToolType = "claude",
     max_sessions: int = DEFAULT_MAX_SESSIONS,
 ) -> List[Session]:
-    """
-    Discover all available sessions for a specific tool.
+    """Discover all available sessions for a specific tool.
 
     Uses os.scandir() for improved performance on large directory trees.
     Implements depth-first search with early termination at rollout files.
@@ -595,7 +598,7 @@ def discover_sessions(
         - Early termination when max_sessions limit is reached
         - Depth-first search stops at valid session directories
     """
-    sessions = []
+    sessions: List[Session] = []
     if not session_dir.exists():
         return sessions
 
@@ -614,14 +617,14 @@ def discover_sessions(
                     ):
                         try:
                             session_file = Path(entry.path)
-                            with open(session_file, "r") as f:
+                            with open(session_file) as f:
                                 data = json.load(f)
                                 session_id = data.get("id", session_file.stem)
                                 session = Session(
                                     session_id, session_file, tool="opencode"
                                 )
                                 sessions.append(session)
-                        except (json.JSONDecodeError, IOError):
+                        except (OSError, json.JSONDecodeError):
                             continue
         except OSError:
             pass
@@ -665,9 +668,7 @@ def discover_sessions(
                                                             tool="codex",
                                                         )
                                                         # Early termination: only add if conversation file exists and is a file
-                                                        if (
-                                                            session.conversation_file.is_file()
-                                                        ):
+                                                        if session.conversation_file.is_file():
                                                             sessions.append(session)
                                         except OSError:
                                             continue
@@ -696,6 +697,7 @@ def discover_sessions(
                 file_size = history_file.stat().st_size
                 if file_size > MAX_HISTORY_FILE_SIZE:
                     import logging
+
                     logging.warning(
                         f"History file {history_file} exceeds maximum size "
                         f"({file_size} > {MAX_HISTORY_FILE_SIZE} bytes). "
@@ -704,19 +706,22 @@ def discover_sessions(
                 else:
                     has_history_jsonl = True
                     try:
-                        with open(history_file, "r") as f:
+                        with open(history_file) as f:
                             for line in f:
                                 line = line.strip()
                                 if line:
                                     try:
                                         data = json.loads(line)
                                         session_id = data.get("sessionId")
-                                        if session_id and session_id not in session_data_map:
+                                        if (
+                                            session_id
+                                            and session_id not in session_data_map
+                                        ):
                                             # Store the first (most recent) entry for each session
                                             session_data_map[session_id] = data
                                     except json.JSONDecodeError:
                                         continue
-                    except IOError:
+                    except OSError:
                         pass
             except OSError:
                 pass
@@ -767,8 +772,7 @@ def discover_sessions(
 
 
 def discover_archives(archive_dir: Path) -> List[Archive]:
-    """
-    Discover all available archives.
+    """Discover all available archives.
 
     Uses os.scandir() for improved performance over glob().
 
@@ -782,7 +786,7 @@ def discover_archives(archive_dir: Path) -> List[Archive]:
         - Uses os.scandir() for better performance vs glob()
         - Filters files in C for reduced system calls
     """
-    archives = []
+    archives: List[Archive] = []
     if not archive_dir.exists():
         return archives
 
@@ -809,8 +813,7 @@ def _build_archive_contents(
     sessions: List[Session],
     config_dir: Path,
 ) -> int:
-    """
-    Add tool-specific files to a tar archive.
+    """Add tool-specific files to a tar archive.
 
     This private helper function handles the file collection logic for all
     supported tools (claude, codex, opencode) and is used by both single
@@ -878,9 +881,7 @@ def _build_archive_contents(
                 for item in session.session_path.rglob("*"):
                     if item.is_file():
                         # Preserve directory structure
-                        rel_path = item.relative_to(
-                            session.session_path.parent.parent
-                        )
+                        rel_path = item.relative_to(session.session_path.parent.parent)
                         tar.add(item, arcname=rel_path)
                         file_count += 1
 
@@ -899,10 +900,7 @@ def _build_archive_contents(
 
         # Handle both old and new formats
         # Check if it's old format (conversation_file is a JSON file)
-        if (
-            session.conversation_file.exists()
-            and session.conversation_file.is_file()
-        ):
+        if session.conversation_file.exists() and session.conversation_file.is_file():
             # Old format - add the conversation JSON file
             tar.add(
                 session.conversation_file,
@@ -935,14 +933,16 @@ def _build_archive_contents(
                 if item.is_file():
                     # Skip history.jsonl (already added) and session-env (already handled)
                     # Also skip old format session directories (sessions/{id}/)
-                    if "history.jsonl" not in str(
+                    if "history.jsonl" not in str(item) and "session-env" not in str(
                         item
-                    ) and "session-env" not in str(item):
+                    ):
                         # Check if it's not in the old sessions directory
                         if "sessions" not in str(item.relative_to(config_dir)):
                             # SECURITY: Skip auth-related files
                             if _is_auth_file(item):
-                                logger.debug(f"Excluding auth file from archive: {item.name}")
+                                logger.debug(
+                                    f"Excluding auth file from archive: {item.name}"
+                                )
                                 continue
                             # Add with relative path from .claude directory
                             arcname = f".claude/{item.relative_to(config_dir)}"
@@ -955,8 +955,7 @@ def _build_archive_contents(
 def create_archive(
     session: Session, config_dir: Path, output_dir: Path, hostname: str
 ) -> Path:
-    """
-    Create a session archive.
+    """Create a session archive.
 
     Args:
         session: Session to archive
@@ -975,9 +974,9 @@ def create_archive(
     archive_filename = f"{tool_prefix}-session-{session.session_id}-{timestamp}.tgz"
     archive_path = output_dir / archive_filename
 
-    import tempfile
-    import shutil
     import gzip
+    import shutil
+    import tempfile
 
     # Create temporary directory for archive contents
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -1034,8 +1033,7 @@ def create_archive_multiple(
     hostname: str,
     archive_name: str,
 ) -> Path:
-    """
-    Create a multi-session archive.
+    """Create a multi-session archive.
 
     Args:
         sessions: List of Sessions to archive
@@ -1052,8 +1050,8 @@ def create_archive_multiple(
     """
     archive_path = output_dir / archive_name
 
-    import tempfile
     import shutil
+    import tempfile
 
     # Create temporary directory for archive contents
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -1123,8 +1121,7 @@ def create_archive_multiple(
 
 
 def _is_auth_file(file_path: Path) -> bool:
-    """
-    Check if a file is an authentication/credentials file that should be excluded.
+    """Check if a file is an authentication/credentials file that should be excluded.
 
     These files should never be exported as they contain sensitive credentials
     that are machine-specific or user-specific.
@@ -1152,8 +1149,7 @@ def _is_auth_file(file_path: Path) -> bool:
 
 
 def _is_safe_tar_member(member: tarfile.TarInfo, target_dir: Path) -> bool:
-    """
-    Validate that a tar archive member is safe for extraction.
+    """Validate that a tar archive member is safe for extraction.
 
     This function checks for:
     - Absolute paths (e.g., /etc/passwd)
@@ -1195,7 +1191,7 @@ def _is_safe_tar_member(member: tarfile.TarInfo, target_dir: Path) -> bool:
         raise ValueError(
             f"Archive member '{member.name}' would extract outside "
             f"target directory '{target_dir}'. This is a security risk."
-        )
+        ) from None
 
     # Check for suspiciously long paths (potential DOS via path length)
     if len(member.name) > 255:
@@ -1236,14 +1232,13 @@ def _is_safe_tar_member(member: tarfile.TarInfo, target_dir: Path) -> bool:
             raise ValueError(
                 f"Archive symlink '{member.name}' -> '{link_target}' would point "
                 f"outside target directory to '{ultimate_target}'. This is a security risk."
-            )
+            ) from None
 
     return True
 
 
 def _calculate_extraction_size(tar: tarfile.TarFile) -> int:
-    """
-    Calculate the total uncompressed size of all archive members.
+    """Calculate the total uncompressed size of all archive members.
 
     Args:
         tar: Open TarFile object
@@ -1261,8 +1256,7 @@ def _calculate_extraction_size(tar: tarfile.TarFile) -> int:
 def extract_archive(
     archive_path: Path, target_dir: Path, max_size_gb: float = 10.0
 ) -> bool:
-    """
-    Extract a session archive with security validation.
+    """Extract a session archive with security validation.
 
     This function performs security checks before extraction:
     - Validates all file paths (no absolute paths, no path traversal)
@@ -1306,13 +1300,13 @@ def extract_archive(
                 except ValueError as e:
                     raise ValueError(
                         f"Security validation failed for archive member '{member.name}': {e}"
-                    )
+                    ) from e
 
             # Reset to read metadata
             if temp_tar.fileobj is not None:
                 temp_tar.fileobj.seek(0)
             else:
-                raise IOError("Cannot seek in tar file - fileobj is None")
+                raise OSError("Cannot seek in tar file - fileobj is None")
 
             try:
                 metadata_json = temp_tar.extractfile("metadata.json")
@@ -1415,15 +1409,14 @@ def extract_archive(
                 # This is handled by the archive structure
         return True
     except tarfile.TarError as e:
-        raise IOError(f"Failed to extract archive: {e}")
+        raise OSError(f"Failed to extract archive: {e}") from e
     except ValueError as e:
         # Re-raise ValueError with context
-        raise IOError(f"Archive security validation failed: {e}")
+        raise OSError(f"Archive security validation failed: {e}") from e
 
 
 def _sanitize_file_permissions(path: Path) -> None:
-    """
-    Sanitize file permissions to prevent privilege escalation.
+    """Sanitize file permissions to prevent privilege escalation.
 
     Removes setuid/setgid/sticky bits and limits maximum permissions.
     This prevents malicious archives from setting dangerous permissions.
@@ -1459,8 +1452,7 @@ def _sanitize_file_permissions(path: Path) -> None:
 
 
 def get_hostname() -> str:
-    """
-    Get system hostname.
+    """Get system hostname.
 
     Returns:
         Hostname string
@@ -1471,8 +1463,7 @@ def get_hostname() -> str:
 
 
 def check_disk_space(path: Path, required_bytes: int) -> bool:
-    """
-    Check if sufficient disk space is available.
+    """Check if sufficient disk space is available.
 
     Args:
         path: Path to check
@@ -1487,8 +1478,7 @@ def check_disk_space(path: Path, required_bytes: int) -> bool:
 
 
 def ensure_directory(path: Path) -> bool:
-    """
-    Ensure directory exists, create if necessary.
+    """Ensure directory exists, create if necessary.
 
     Args:
         path: Directory path

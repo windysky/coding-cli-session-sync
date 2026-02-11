@@ -1,25 +1,20 @@
-"""
-Performance regression tests for critical performance fixes.
+"""Performance regression tests for critical performance fixes.
 
 Tests verify O(n) behavior instead of O(n²) for history.jsonl scanning
 and single-pass compression for archive creation.
 """
 
 import json
-import os
-import tempfile
 import time
 from datetime import datetime
-from pathlib import Path
-from typing import List
 
 import pytest
 
 from session_sync.core import (
+    _GLOBAL_HISTORY_CACHE,
     Session,
     create_archive,
     discover_sessions,
-    _GLOBAL_HISTORY_CACHE,
 )
 
 
@@ -64,7 +59,9 @@ class TestHistoryScanningPerformance:
 
         return session_env, history_file, session_count
 
-    def test_discover_sessions_uses_preloaded_data(self, claude_new_format_with_history):
+    def test_discover_sessions_uses_preloaded_data(
+        self, claude_new_format_with_history
+    ):
         """Test that discover_sessions passes pre-loaded history data to Session objects.
 
         This ensures that accessing session properties doesn't trigger re-scans
@@ -84,7 +81,9 @@ class TestHistoryScanningPerformance:
         # With the fix, this should be very fast (O(1) per session)
         property_access_start = time.time()
         for session in sessions:
-            _ = session.name  # This would trigger _load_history_data() if not pre-loaded
+            _ = (
+                session.name
+            )  # This would trigger _load_history_data() if not pre-loaded
             _ = session.created_at  # This would also trigger _load_history_data()
         property_access_time = time.time() - property_access_start
 
@@ -98,7 +97,9 @@ class TestHistoryScanningPerformance:
         # Discovery itself should also be reasonably fast
         assert discovery_time < 2.0, f"Discovery too slow: {discovery_time:.3f}s"
 
-    def test_session_created_outside_discovery_uses_cache(self, claude_new_format_with_history):
+    def test_session_created_outside_discovery_uses_cache(
+        self, claude_new_format_with_history
+    ):
         """Test that Session objects created outside discover_sessions use the global cache.
 
         When Session objects are created individually (not through discover_sessions),
@@ -166,7 +167,9 @@ class TestHistoryScanningPerformance:
         access_time = time.time() - start_time
 
         # Should be instant (no file scan)
-        assert access_time < 0.01, f"Access took too long: {access_time:.3f}s - likely re-scanned history.jsonl"
+        assert access_time < 0.01, (
+            f"Access took too long: {access_time:.3f}s - likely re-scanned history.jsonl"
+        )
 
         # Verify the name is the session_id (fallback behavior)
         assert session.name == orphan_session_id
@@ -219,11 +222,15 @@ class TestHistoryScanningPerformance:
 
         # Performance assertions
         # Discovery: Should be O(n), expect < 5 seconds for 500 sessions
-        assert discovery_time < 5.0, f"Discovery too slow: {discovery_time:.3f}s for {session_count} sessions"
+        assert discovery_time < 5.0, (
+            f"Discovery too slow: {discovery_time:.3f}s for {session_count} sessions"
+        )
 
         # Property access: Should be O(n) total (O(1) per session with pre-loaded data)
         # If O(n²), this would be >> 1 second for 500 sessions
-        assert property_time < 1.0, f"Property access too slow: {property_time:.3f}s for {session_count} sessions"
+        assert property_time < 1.0, (
+            f"Property access too slow: {property_time:.3f}s for {session_count} sessions"
+        )
 
 
 class TestArchiveCreationPerformance:
@@ -255,19 +262,30 @@ class TestArchiveCreationPerformance:
         # Create history.jsonl
         history_file = config_dir / "history.jsonl"
         history_file.write_text(
-            json.dumps({
-                "sessionId": session_id,
-                "timestamp": int(datetime.now().timestamp() * 1000),
-                "display": "Large test session",
-            }) + "\n"
+            json.dumps(
+                {
+                    "sessionId": session_id,
+                    "timestamp": int(datetime.now().timestamp() * 1000),
+                    "display": "Large test session",
+                }
+            )
+            + "\n"
         )
 
         # Create output directory
         output_dir = tmp_path / "output"
         output_dir.mkdir()
 
-        return Session(session_id, session_path, tool="claude",
-                      history_data=json.loads(history_file.read_text())), config_dir, output_dir
+        return (
+            Session(
+                session_id,
+                session_path,
+                tool="claude",
+                history_data=json.loads(history_file.read_text()),
+            ),
+            config_dir,
+            output_dir,
+        )
 
     def test_archive_creation_single_compression_pass(self, large_claude_session):
         """Test that archive creation uses single compression pass.
@@ -300,6 +318,7 @@ class TestArchiveCreationPerformance:
 
         # Verify the archive is valid (can be opened)
         import tarfile
+
         try:
             with tarfile.open(archive_path, "r:gz") as tar:
                 members = tar.getnames()
@@ -317,6 +336,7 @@ class TestArchiveCreationPerformance:
 
         # Extract and verify metadata
         import tarfile
+
         with tarfile.open(archive_path, "r:gz") as tar:
             metadata_member = tar.extractfile("metadata.json")
             if metadata_member is None:
@@ -353,13 +373,13 @@ class TestArchiveCreationPerformance:
         iterations = 3
         times = []
 
-        for i in range(iterations):
+        for _i in range(iterations):
             # Clean output directory
             for archive in output_dir.glob("*.tgz"):
                 archive.unlink()
 
             start = time.time()
-            archive_path = create_archive(session, config_dir, output_dir, "test-host")
+            create_archive(session, config_dir, output_dir, "test-host")
             times.append(time.time() - start)
 
         avg_time = sum(times) / len(times)
@@ -369,7 +389,9 @@ class TestArchiveCreationPerformance:
 
         # Variance should be low (consistent performance)
         variance = max(times) - min(times)
-        assert variance < 1.0, f"High variance in archive creation times: {variance:.3f}s"
+        assert variance < 1.0, (
+            f"High variance in archive creation times: {variance:.3f}s"
+        )
 
 
 class TestCombinedPerformance:
@@ -404,7 +426,9 @@ class TestCombinedPerformance:
 
             session_dir = session_env / session_id
             session_dir.mkdir()
-            (session_dir / "session_data.json").write_text(json.dumps({"data": f"session_{i}"}))
+            (session_dir / "session_data.json").write_text(
+                json.dumps({"data": f"session_{i}"})
+            )
 
         history_file.write_text("\n".join(history_lines) + "\n")
 
@@ -435,8 +459,8 @@ class TestCombinedPerformance:
         # With O(n²) history scanning + double compression, this would be >> 10 seconds
         assert total_time < 10.0, f"End-to-end workflow too slow: {total_time:.3f}s"
 
-        print(f"\nEnd-to-end performance:")
+        print("\nEnd-to-end performance:")
         print(f"  Sessions discovered: {len(sessions)}")
-        print(f"  Archives created: 10")
+        print("  Archives created: 10")
         print(f"  Total time: {total_time:.3f}s")
         print(f"  Average per archive: {(total_time / 10):.3f}s")

@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Improved UI utilities for session synchronization.
+"""Improved UI utilities for session synchronization.
 
 Provides boxed menu display, checkbox states, and color-coded output
 similar to the agentic-cli-installer pattern.
@@ -8,8 +7,7 @@ similar to the agentic-cli-installer pattern.
 
 import os
 import sys
-from typing import List, Optional
-from pathlib import Path
+from typing import Optional
 
 
 # ANSI color codes
@@ -65,8 +63,7 @@ def clear_screen() -> None:
 
 
 def print_box_header(title: str, subtitle: str = "") -> None:
-    """
-    Print a boxed header with title and optional subtitle.
+    """Print a boxed header with title and optional subtitle.
 
     Args:
         title: Main title text
@@ -123,8 +120,7 @@ def print_info(text: str) -> None:
 
 
 def checkbox(selected: bool, checked_char: str = "✓") -> str:
-    """
-    Return a checkbox string with selection state.
+    """Return a checkbox string with selection state.
 
     Args:
         selected: Whether the item is selected
@@ -139,8 +135,7 @@ def checkbox(selected: bool, checked_char: str = "✓") -> str:
 
 
 def action_checkbox(action: str) -> str:
-    """
-    Return a checkbox string based on action type.
+    """Return a checkbox string based on action type.
 
     Args:
         action: Action type (export, skip, import, etc.)
@@ -163,8 +158,7 @@ def action_checkbox(action: str) -> str:
 
 
 def format_size(size_bytes: int) -> str:
-    """
-    Format byte size as human-readable string.
+    """Format byte size as human-readable string.
 
     Args:
         size_bytes: Size in bytes
@@ -183,8 +177,7 @@ def format_size(size_bytes: int) -> str:
 
 
 def format_datetime(dt_str: Optional[str], width: int = 16) -> str:
-    """
-    Format datetime string for display.
+    """Format datetime string for display.
 
     Args:
         dt_str: ISO datetime string
@@ -201,8 +194,7 @@ def format_datetime(dt_str: Optional[str], width: int = 16) -> str:
 
 
 def get_color_for_status(status: str) -> str:
-    """
-    Get ANSI color code for a status string.
+    """Get ANSI color code for a status string.
 
     Args:
         status: Status string
@@ -232,8 +224,7 @@ def print_table_row(
     name_width: int = 45,
     status_width: int = 14,
 ) -> None:
-    """
-    Print a single table row for session/archive listing.
+    """Print a single table row for session/archive listing.
 
     Args:
         num: Row number

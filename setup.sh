@@ -36,6 +36,28 @@ if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
     echo ""
 fi
 
+# Check for conda base environment
+if [ -n "$CONDA_DEFAULT_ENV" ] && [ "$CONDA_DEFAULT_ENV" = "base" ]; then
+    echo -e "${YELLOW}WARNING: You are in the conda 'base' environment${NC}"
+    echo ""
+    echo "It is recommended to install session_sync in a dedicated conda environment."
+    echo "This prevents conflicts with conda's base packages."
+    echo ""
+    echo "To create and activate a new environment:"
+    echo "  conda create -n session_sync python=3.11"
+    echo "  conda activate session_sync"
+    echo "  ./setup.sh"
+    echo ""
+    read -p "Continue installing in base environment anyway? (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo -e "${GREEN}Installation cancelled.${NC}"
+        echo "Please create a dedicated environment and run setup.sh again."
+        exit 0
+    fi
+    echo ""
+fi
+
 # Check if pip is available
 if ! command -v pip3 &> /dev/null && ! command -v pip &> /dev/null; then
     echo -e "${RED}Error: pip is not installed${NC}"

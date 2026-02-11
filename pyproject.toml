@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.8"
 license = {text = "MIT"}
 authors = [
-    {name = "Session Sync Team", email = "team@example.com"},
+    {name = "windysky", email = "windysky@users.noreply.github.com"},
 ]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
@@ -24,9 +24,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
 ]
-dependencies = [
-    "pathlib",
-]
+dependencies = []
 
 [project.optional-dependencies]
 dev = [
@@ -37,10 +35,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/example/session-sync"
-Repository = "https://github.com/example/session-sync"
-Documentation = "https://github.com/example/session-sync#readme"
-Issues = "https://github.com/example/session-sync/issues"
+Homepage = "https://github.com/windysky/coding-cli-session-sync"
+Repository = "https://github.com/windysky/coding-cli-session-sync"
+Documentation = "https://github.com/windysky/coding-cli-session-sync#readme"
+Issues = "https://github.com/windysky/coding-cli-session-sync/issues"
 
 [project.scripts]
 session-export = "session_sync.export_session:main"
@@ -93,14 +91,13 @@ select = [
 ignore = [
     "E501",  # line too long, handled by black
     "B008",  # do not perform function calls in argument defaults
-    "W503",  # line break before binary operator
 ]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
 [tool.mypy]
-python_version = "3.8"
+python_version = "3.9"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true

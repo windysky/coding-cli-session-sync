@@ -1,64 +1,89 @@
 #!/usr/bin/env python3
-"""
-Import AI tool session from portable archive.
+"""Import AI tool session from portable archive.
 
 This script imports sessions from various AI tools (codex, opencode, claude)
 from .tgz archives created by the export script.
 """
 
-import os
-import sys
 import json
-import shutil
-import tempfile
-import re
 import logging
-from pathlib import Path
-from typing import List, Tuple, Optional, Dict, Any
+import os
+import re
+import shutil
+import sys
+import tempfile
 from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 # Configure security audit logging
-security_logger = logging.getLogger('session_sync.security')
+security_logger = logging.getLogger("session_sync.security")
 security_logger.setLevel(logging.WARNING)
 
 # Security constants
 MAX_LINE_LENGTH = 10 * 1024  # 10KB maximum line length
-SESSION_ID_PATTERN = re.compile(r'^[a-zA-Z0-9\-_]+$')  # Alphanumeric, hyphens, underscores
+SESSION_ID_PATTERN = re.compile(
+    r"^[a-zA-Z0-9\-_]+$"
+)  # Alphanumeric, hyphens, underscores
 MAX_SESSION_ID_LENGTH = 256
 
-from session_sync.core import (
-    discover_archives,
-    Archive,
-    extract_archive,
-    check_disk_space,
-    ensure_directory,
-    ToolType,
-    Session,
-)
-from session_sync.file_lock import FileLock
-from session_sync.utils import (
-    get_tool_directories,
-)
-from session_sync.ui import (
-    clear_screen,
-    print_box_header,
-    print_section,
-    print_separator,
-    print_header,
-    print_success,
-    print_error,
-    print_info,
-    print_warning,
-    action_checkbox,
-    format_size,
-    format_datetime,
-    Colors,
-)
+# Graceful import error handling
+try:
+    from session_sync.core import (
+        Archive,
+        check_disk_space,
+        discover_archives,
+        ensure_directory,
+        extract_archive,
+    )
+    from session_sync.file_lock import FileLock
+    from session_sync.ui import (
+        Colors,
+        clear_screen,
+        format_size,
+        print_box_header,
+        print_error,
+        print_header,
+        print_info,
+        print_section,
+        print_separator,
+        print_success,
+        print_warning,
+    )
+    from session_sync.utils import (
+        get_tool_directories,
+    )
+except ImportError as e:
+    print("=" * 60)
+    print("ERROR: session_sync module not found!")
+    print("=" * 60)
+    print()
+    print("This usually means the package is not installed or you are")
+    print("running from a different Python environment than where it was installed.")
+    print()
+    print("SOLUTIONS:")
+    print()
+    print("1. Install the package:")
+    print("   cd /path/to/coding-cli-session-sync")
+    print("   ./setup.sh")
+    print()
+    print("2. If using conda, make sure you're in the right environment:")
+    print("   conda activate YOUR_ENV_NAME")
+    print("   session-import")
+    print()
+    print("3. If installed, check your PATH includes ~/.local/bin:")
+    print("   echo $PATH | grep local/bin")
+    print()
+    print("4. Try running with the Python interpreter directly:")
+    print("   python -m session_sync.import_session")
+    print()
+    print(f"Import error details: {e}")
+    print("=" * 60)
+    sys.exit(1)
 
 
 def validate_session_id(session_id: Any, source_file: str, line_number: int) -> bool:
-    """
-    Validate session ID meets security requirements.
+    """Validate session ID meets security requirements.
 
     Args:
         session_id: The session ID to validate
@@ -96,8 +121,7 @@ def validate_session_id(session_id: Any, source_file: str, line_number: int) -> 
 
 
 def validate_json_line_size(line: str, source_file: str, line_number: int) -> bool:
-    """
-    Validate JSON line size to prevent memory exhaustion.
+    """Validate JSON line size to prevent memory exhaustion.
 
     Args:
         line: The line to validate
@@ -116,9 +140,10 @@ def validate_json_line_size(line: str, source_file: str, line_number: int) -> bo
     return True
 
 
-def validate_session_json_schema(data: Dict[str, Any], source_file: str, line_number: int) -> bool:
-    """
-    Validate JSON schema for session data.
+def validate_session_json_schema(
+    data: Dict[str, Any], source_file: str, line_number: int
+) -> bool:
+    """Validate JSON schema for session data.
 
     Args:
         data: Parsed JSON data
@@ -128,14 +153,17 @@ def validate_session_json_schema(data: Dict[str, Any], source_file: str, line_nu
     Returns:
         True if valid, False otherwise
     """
+
     # Check for suspicious nested structures (potential injection) FIRST
     # This prevents stack overflow attacks regardless of sessionId presence
-    def check_depth(obj, current_depth=0, max_depth=10):
+    def check_depth(obj: Any, current_depth: int = 0, max_depth: int = 10) -> bool:
         """Recursively check nesting depth to prevent stack overflow."""
         if current_depth > max_depth:
             return False
         if isinstance(obj, dict):
-            return all(check_depth(v, current_depth + 1, max_depth) for v in obj.values())
+            return all(
+                check_depth(v, current_depth + 1, max_depth) for v in obj.values()
+            )
         elif isinstance(obj, list):
             return all(check_depth(item, current_depth + 1, max_depth) for item in obj)
         return True
@@ -147,12 +175,12 @@ def validate_session_json_schema(data: Dict[str, Any], source_file: str, line_nu
         return False
 
     # Check for required sessionId field
-    if 'sessionId' not in data:
+    if "sessionId" not in data:
         # sessionId is optional for some entries
         return True
 
     # Validate sessionId format
-    if not validate_session_id(data['sessionId'], source_file, line_number):
+    if not validate_session_id(data["sessionId"], source_file, line_number):
         return False
 
     return True
@@ -163,22 +191,22 @@ class BackupManager:
 
     DEFAULT_BACKUP_RETENTION_DAYS = 7
 
-    def __init__(self, backup_dir: Optional[Path] = None, retention_days: Optional[int] = None):
-        """
-        Initialize backup manager.
+    def __init__(
+        self, backup_dir: Optional[Path] = None, retention_days: Optional[int] = None
+    ):
+        """Initialize backup manager.
 
         Args:
             backup_dir: Custom backup directory (defaults to ~/.claude/session_sync/backups)
             retention_days: Backup retention period in days (defaults to 7)
         """
         if backup_dir is None:
-            backup_dir = Path.home() / '.claude' / 'session_sync' / 'backups'
+            backup_dir = Path.home() / ".claude" / "session_sync" / "backups"
         self.backup_dir = Path(backup_dir)
         self.retention_days = retention_days or self.DEFAULT_BACKUP_RETENTION_DAYS
 
     def create_backup(self, source_path: Path, session_id: str) -> Optional[Path]:
-        """
-        Create a backup of the specified directory or file.
+        """Create a backup of the specified directory or file.
 
         Args:
             source_path: Path to back up
@@ -194,7 +222,7 @@ class BackupManager:
         self.backup_dir.mkdir(parents=True, exist_ok=True)
 
         # Create backup with timestamp
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         backup_name = f"{session_id}.bak-{timestamp}"
         backup_path = self.backup_dir / backup_name
 
@@ -214,8 +242,7 @@ class BackupManager:
             return None
 
     def restore_backup(self, backup_path: Path, target_path: Path) -> bool:
-        """
-        Restore from backup.
+        """Restore from backup.
 
         Args:
             backup_path: Path to backup
@@ -252,8 +279,7 @@ class BackupManager:
             return False
 
     def cleanup_backup(self, backup_path: Path) -> bool:
-        """
-        Remove a backup directory.
+        """Remove a backup directory.
 
         Args:
             backup_path: Path to backup to remove
@@ -276,8 +302,7 @@ class BackupManager:
             return False
 
     def cleanup_old_backups(self, keep_backups: bool = False) -> int:
-        """
-        Remove backups older than retention period.
+        """Remove backups older than retention period.
 
         Args:
             keep_backups: If True, skip cleanup
@@ -295,12 +320,12 @@ class BackupManager:
         print_info(f"Cleaning up backups older than {self.retention_days} days...")
 
         try:
-            for backup in self.backup_dir.glob('*.bak-*'):
+            for backup in self.backup_dir.glob("*.bak-*"):
                 # Extract timestamp from backup name
                 try:
                     # Format: session_id.bak-YYYYMMDD_HHMMSS
-                    timestamp_str = backup.name.split('.bak-')[-1]
-                    backup_time = datetime.strptime(timestamp_str, '%Y%m%d_%H%M%S')
+                    timestamp_str = backup.name.split(".bak-")[-1]
+                    backup_time = datetime.strptime(timestamp_str, "%Y%m%d_%H%M%S")
 
                     if backup_time < cutoff_time:
                         if self.cleanup_backup(backup):
@@ -320,9 +345,9 @@ class BackupManager:
         return cleaned
 
 
-
-
-def display_archive_menu(archives: List[Archive]) -> Optional[Tuple[Archive, List[str]]]:
+def display_archive_menu(
+    archives: List[Archive],
+) -> Optional[Tuple[Archive, List[str]]]:
     """Display interactive menu for archive selection with improved UI.
 
     Returns:
@@ -338,10 +363,7 @@ def display_archive_menu(archives: List[Archive]) -> Optional[Tuple[Archive, Lis
         clear_screen()
 
         # Print boxed header
-        print_box_header(
-            "Session Import",
-            "Select: 1-N | D=delete | Q=quit"
-        )
+        print_box_header("Session Import", "Select: 1-N | D=delete | Q=quit")
 
         print_section("AVAILABLE ARCHIVES")
         print_separator()
@@ -370,7 +392,7 @@ def display_archive_menu(archives: List[Archive]) -> Optional[Tuple[Archive, Lis
         for i, archive in enumerate(archives, 1):
             metadata = archive.load_metadata()
             if metadata:
-                tool_label = (metadata.session.tool or "claude").upper()[:tool_width]
+                tool_label = metadata.session.tool.upper()[:tool_width]
                 name_display = metadata.session.name[:name_width].ljust(name_width)
                 size_display = format_size(archive.size_bytes).rjust(size_width)
                 source_display = metadata.source_hostname[:12].ljust(12)
@@ -415,12 +437,16 @@ def display_archive_menu(archives: List[Archive]) -> Optional[Tuple[Archive, Lis
                 )
 
         print_separator()
-        print(f"{Colors.CYAN}D{Colors.RESET} - Delete selected archives (e.g., D 1,3,5)")
+        print(
+            f"{Colors.CYAN}D{Colors.RESET} - Delete selected archives (e.g., D 1,3,5)"
+        )
         print(f"{Colors.CYAN}Q{Colors.RESET} - Quit")
 
         # Get user input
         try:
-            choice = input(f"\n{Colors.BOLD}Select archive (1-{len(archives)}), D to delete, Q to quit:{Colors.RESET} ").strip()
+            choice = input(
+                f"\n{Colors.BOLD}Select archive (1-{len(archives)}), D to delete, Q to quit:{Colors.RESET} "
+            ).strip()
 
             # Check for quit
             if choice.upper() == "Q":
@@ -434,26 +460,40 @@ def display_archive_menu(archives: List[Archive]) -> Optional[Tuple[Archive, Lis
                 if indices_str:
                     try:
                         # Parse comma-separated list
-                        indices_to_delete = []
+                        indices_to_delete: List[int] = []
                         for part in indices_str.split(","):
                             part = part.strip()
                             if "-" in part:
                                 # Range support (e.g., 1-5)
                                 start, end = part.split("-")
-                                indices_to_delete.extend(range(int(start)-1, int(end)))
+                                indices_to_delete.extend(
+                                    range(int(start) - 1, int(end))
+                                )
                             else:
                                 indices_to_delete.append(int(part) - 1)
                         # Confirm deletion
-                        print(f"\n{Colors.YELLOW}About to delete {len(indices_to_delete)} archive(s):{Colors.RESET}")
+                        print(
+                            f"\n{Colors.YELLOW}About to delete {len(indices_to_delete)} archive(s):{Colors.RESET}"
+                        )
                         for idx in indices_to_delete:
                             if 0 <= idx < len(archives):
                                 print(f"  - {archives[idx].archive_path.name}")
-                        confirm = input(f"\n{Colors.BOLD}Confirm deletion? (y/N):{Colors.RESET} ").strip().lower()
-                        if confirm == 'y':
+                        confirm = (
+                            input(
+                                f"\n{Colors.BOLD}Confirm deletion? (y/N):{Colors.RESET} "
+                            )
+                            .strip()
+                            .lower()
+                        )
+                        if confirm == "y":
                             deleted = delete_archives(archives, indices_to_delete)
                             print_success(f"Deleted {deleted} archive(s)")
                             # Remove deleted archives from list
-                            archives = [a for i, a in enumerate(archives) if i not in indices_to_delete]
+                            archives = [
+                                a
+                                for i, a in enumerate(archives)
+                                if i not in indices_to_delete
+                            ]
                             if not archives:
                                 print_info("No more archives available")
                                 return None
@@ -476,10 +516,12 @@ def display_archive_menu(archives: List[Archive]) -> Optional[Tuple[Archive, Lis
                     print_header(f"\n{Colors.GREEN}Selected Archive:")
                     if metadata:
                         # Get session info
-                        session_count, session_ids, tool = get_archive_sessions_info(selected_archive)
+                        session_count, session_ids, tool = get_archive_sessions_info(
+                            selected_archive
+                        )
 
                         print(f"  Name: {metadata.session.name}")
-                        print(f"  Tool: {(metadata.session.tool or 'claude').upper()}")
+                        print(f"  Tool: {metadata.session.tool.upper()}")
                         print(f"  Source: {metadata.source_hostname}")
                         print(f"  Size: {format_size(selected_archive.size_bytes)}")
 
@@ -489,22 +531,36 @@ def display_archive_menu(archives: List[Archive]) -> Optional[Tuple[Archive, Lis
                         # Show session status
                         any_exists = check_any_session_exists(selected_archive)
                         if any_exists:
-                            print(f"  {Colors.YELLOW}Status: Some sessions already exist locally{Colors.RESET}")
+                            print(
+                                f"  {Colors.YELLOW}Status: Some sessions already exist locally{Colors.RESET}"
+                            )
                         else:
-                            print(f"  {Colors.GREEN}Status: All sessions are new{Colors.RESET}")
+                            print(
+                                f"  {Colors.GREEN}Status: All sessions are new{Colors.RESET}"
+                            )
 
                         # Always show session selection menu (even for single sessions)
-                        selected_session_ids = select_sessions_from_archive(selected_archive, session_ids, tool)
+                        selected_session_ids = select_sessions_from_archive(
+                            selected_archive, session_ids, tool
+                        )
                         if not selected_session_ids:
                             print_info("Session selection cancelled")
                             input("Press Enter to continue...")
                             continue
 
-                        print_success(f"Importing {len(selected_session_ids)} selected session(s)")
+                        print_success(
+                            f"Importing {len(selected_session_ids)} selected session(s)"
+                        )
 
                         # Final confirmation before import
-                        confirm = input(f"\n{Colors.BOLD}Proceed with importing {len(selected_session_ids)} session(s)? (y/N):{Colors.RESET} ").strip().lower()
-                        if confirm == 'y':
+                        confirm = (
+                            input(
+                                f"\n{Colors.BOLD}Proceed with importing {len(selected_session_ids)} session(s)? (y/N):{Colors.RESET} "
+                            )
+                            .strip()
+                            .lower()
+                        )
+                        if confirm == "y":
                             return (selected_archive, selected_session_ids)
                         else:
                             print_info("Import cancelled")
@@ -512,11 +568,15 @@ def display_archive_menu(archives: List[Archive]) -> Optional[Tuple[Archive, Lis
                             continue
                     else:
                         print(f"  File: {selected_archive.archive_path.name}")
-                        confirm = input(f"\nProceed with import? (y/N): ").strip().lower()
-                        if confirm == 'y':
+                        confirm = (
+                            input("\nProceed with import? (y/N): ").strip().lower()
+                        )
+                        if confirm == "y":
                             return (selected_archive, [])
                 else:
-                    print_error(f"Invalid selection. Please enter a number between 1 and {len(archives)}")
+                    print_error(
+                        f"Invalid selection. Please enter a number between 1 and {len(archives)}"
+                    )
                     input("Press Enter to continue...")
             except ValueError:
                 print_error("Please enter a valid number")
@@ -527,9 +587,10 @@ def display_archive_menu(archives: List[Archive]) -> Optional[Tuple[Archive, Lis
             return None
 
 
-def select_sessions_from_archive(archive: Archive, session_ids: List[str], tool: str) -> List[str]:
-    """
-    Display menu for selecting individual sessions from a multi-session archive.
+def select_sessions_from_archive(
+    archive: Archive, session_ids: List[str], tool: str
+) -> List[str]:
+    """Display menu for selecting individual sessions from a multi-session archive.
 
     Shows session details in a table format similar to the export script.
     Auto-selects sessions that don't exist locally.
@@ -565,7 +626,7 @@ def select_sessions_from_archive(archive: Archive, session_ids: List[str], tool:
 
     # Pre-check which sessions exist locally and auto-select new ones
     session_exists = []
-    for i, session in enumerate(session_details):
+    for session in session_details:
         session_id_str = session["session_id"]
         exists_locally = False
         if session_dir:
@@ -586,7 +647,7 @@ def select_sessions_from_archive(archive: Archive, session_ids: List[str], tool:
         session_exists.append(exists_locally)
 
     # Auto-select sessions that DON'T exist locally (smart default)
-    selected_indices: set[int] = set()
+    selected_indices: Set[int] = set()
     for i, exists in enumerate(session_exists):
         if not exists:
             selected_indices.add(i)
@@ -594,8 +655,7 @@ def select_sessions_from_archive(archive: Archive, session_ids: List[str], tool:
     while True:
         clear_screen()
         print_box_header(
-            "Select Sessions to Import",
-            "Toggle: number | C=continue | Q=quit"
+            "Select Sessions to Import", "Toggle: number | C=continue | Q=quit"
         )
         print_section("SESSIONS IN ARCHIVE")
         print_separator()
@@ -632,7 +692,11 @@ def select_sessions_from_archive(archive: Archive, session_ids: List[str], tool:
             name_display = session_name[:name_width].ljust(name_width)
 
             # Truncate ID if too long
-            id_display = (session_id_str[:id_width] + '..') if len(session_id_str) > id_width else session_id_str
+            id_display = (
+                (session_id_str[:id_width] + "..")
+                if len(session_id_str) > id_width
+                else session_id_str
+            )
             id_display = id_display.ljust(id_width)
 
             # Format modified time - use the session's actual timestamp
@@ -643,13 +707,17 @@ def select_sessions_from_archive(archive: Archive, session_ids: List[str], tool:
                         last_modified = datetime.fromisoformat(last_modified)
                     except ValueError:
                         last_modified = datetime.now()
-                modified_display = last_modified.strftime("%Y-%m-%d %H:%M")[:modified_width].ljust(modified_width)
+                modified_display = last_modified.strftime("%Y-%m-%d %H:%M")[
+                    :modified_width
+                ].ljust(modified_width)
             else:
                 modified_display = "Unknown".ljust(modified_width)
 
             # Status column: New (green) or Exists (yellow)
             if exists_locally:
-                status_display = f"{Colors.YELLOW}Exists{Colors.RESET}".ljust(status_width)
+                status_display = f"{Colors.YELLOW}Exists{Colors.RESET}".ljust(
+                    status_width
+                )
             else:
                 status_display = f"{Colors.GREEN}New{Colors.RESET}".ljust(status_width)
 
@@ -672,30 +740,41 @@ def select_sessions_from_archive(archive: Archive, session_ids: List[str], tool:
 
         # Show selection count and legend
         selected_count = len(selected_indices)
-        new_count = sum(1 for e in session_exists if not e)
         if selected_count > 0:
-            print(f"\n{Colors.GREEN}Selected: {selected_count}/{len(session_details)} sessions{Colors.RESET}")
+            print(
+                f"\n{Colors.GREEN}Selected: {selected_count}/{len(session_details)} sessions{Colors.RESET}"
+            )
         else:
-            print(f"\n{Colors.CYAN}Selected: 0/{len(session_details)} sessions{Colors.RESET}")
+            print(
+                f"\n{Colors.CYAN}Selected: 0/{len(session_details)} sessions{Colors.RESET}"
+            )
 
-        print(f"{Colors.GREEN}Green 'New' = Auto-selected (not on this machine){Colors.RESET}")
+        print(
+            f"{Colors.GREEN}Green 'New' = Auto-selected (not on this machine){Colors.RESET}"
+        )
         print(f"{Colors.YELLOW}Yellow 'Exists' = Already on this machine{Colors.RESET}")
 
         # Get user input
         try:
-            choice = input(f"\n{Colors.BOLD}Toggle selection (1-{len(session_details)}, C=continue, Q=quit):{Colors.RESET} ").strip()
+            choice = input(
+                f"\n{Colors.BOLD}Toggle selection (1-{len(session_details)}, C=continue, Q=quit):{Colors.RESET} "
+            ).strip()
 
             # Check for quit
             if choice.upper() == "Q":
                 return []
 
             # Check for continue
-            if not choice or choice.upper() == 'C':
+            if not choice or choice.upper() == "C":
                 if not selected_indices:
-                    print_warning("No sessions selected. Please select at least one session or press Q to quit.")
+                    print_warning(
+                        "No sessions selected. Please select at least one session or press Q to quit."
+                    )
                     input("Press Enter to continue...")
                     continue
-                return [session_details[i]["session_id"] for i in sorted(selected_indices)]
+                return [
+                    session_details[i]["session_id"] for i in sorted(selected_indices)
+                ]
 
             # Parse as number to toggle
             try:
@@ -707,10 +786,14 @@ def select_sessions_from_archive(archive: Archive, session_ids: List[str], tool:
                     else:
                         selected_indices.add(idx)
                 else:
-                    print_error(f"Please enter a number between 1 and {len(session_details)}")
+                    print_error(
+                        f"Please enter a number between 1 and {len(session_details)}"
+                    )
                     input("Press Enter to continue...")
             except ValueError:
-                print_error("Invalid input. Enter a number, C to continue, or Q to quit.")
+                print_error(
+                    "Invalid input. Enter a number, C to continue, or Q to quit."
+                )
                 input("Press Enter to continue...")
 
         except (EOFError, KeyboardInterrupt):
@@ -718,8 +801,7 @@ def select_sessions_from_archive(archive: Archive, session_ids: List[str], tool:
 
 
 def check_session_conflict(session_id: str, session_dir: Path) -> bool:
-    """
-    Check if session already exists.
+    """Check if session already exists.
 
     Args:
         session_id: Session ID to check
@@ -732,9 +814,8 @@ def check_session_conflict(session_id: str, session_dir: Path) -> bool:
     return existing_session.exists()
 
 
-def get_archive_sessions_info(archive: 'Archive') -> Tuple[int, List[str], str]:
-    """
-    Get session information from an archive's metadata.
+def get_archive_sessions_info(archive: "Archive") -> Tuple[int, List[str], str]:
+    """Get session information from an archive's metadata.
 
     For multi-session archives, returns all session IDs.
     For single-session archives, returns the single session ID.
@@ -752,22 +833,26 @@ def get_archive_sessions_info(archive: 'Archive') -> Tuple[int, List[str], str]:
     # Try to load the full metadata dict to check for multi-session info
     try:
         import tarfile
+
         with tarfile.open(archive.archive_path, "r:gz") as tar:
             member = tar.getmember("metadata.json")
             file = tar.extractfile(member)
             if file:
-                import tempfile
                 import os
+                import tempfile
+
                 fd, tmp_path_str = tempfile.mkstemp(suffix=".json", text=True)
                 tmp_path = Path(tmp_path_str)
                 try:
                     os.chmod(fd, 0o600)
-                    with os.fdopen(fd, 'w') as f:
+                    with os.fdopen(fd, "w") as f:
                         f.write(file.read().decode("utf-8"))
-                    with open(tmp_path, 'r') as f:
+                    with open(tmp_path) as f:
                         metadata_dict = json.load(f)
                     session_count = metadata_dict.get("session_count", 1)
-                    all_session_ids = metadata_dict.get("all_session_ids", [metadata_dict.get("session", {}).get("id")])
+                    all_session_ids = metadata_dict.get(
+                        "all_session_ids", [metadata_dict.get("session", {}).get("id")]
+                    )
                     tool = metadata_dict.get("session", {}).get("tool", "claude")
                     return session_count, all_session_ids, tool
                 finally:
@@ -777,12 +862,11 @@ def get_archive_sessions_info(archive: 'Archive') -> Tuple[int, List[str], str]:
         pass
 
     # Fallback to single session
-    return 1, [metadata.session.session_id], metadata.session.tool or "claude"
+    return 1, [metadata.session.session_id], metadata.session.tool
 
 
-def get_session_details_from_archive(archive: 'Archive') -> List[Dict[str, Any]]:
-    """
-    Extract detailed session information from an archive.
+def get_session_details_from_archive(archive: "Archive") -> List[Dict[str, Any]]:
+    """Extract detailed session information from an archive.
 
     Returns list of session dicts with keys: session_id, name, last_modified, size_bytes
 
@@ -792,23 +876,28 @@ def get_session_details_from_archive(archive: 'Archive') -> List[Dict[str, Any]]
     Returns:
         List of session detail dictionaries
     """
-    sessions = []
+    sessions: List[Dict[str, Any]] = []
     metadata = archive.load_metadata()
     if not metadata:
         return sessions
 
-    tool = metadata.session.tool or "claude"
+    tool = metadata.session.tool
     _session_count, session_ids, _ = get_archive_sessions_info(archive)
 
     try:
         import tarfile
+
         with tarfile.open(archive.archive_path, "r:gz") as tar:
             if tool == "opencode":
                 # For OpenCode, find all session JSON files in the archive
                 for member in tar.getmembers():
                     name = member.name
                     # Look for session files at root level (ses_*.json)
-                    if name.startswith("ses_") and name.endswith(".json") and name.count("/") == 0:
+                    if (
+                        name.startswith("ses_")
+                        and name.endswith(".json")
+                        and name.count("/") == 0
+                    ):
                         try:
                             file = tar.extractfile(member)
                             if file:
@@ -817,36 +906,54 @@ def get_session_details_from_archive(archive: 'Archive') -> List[Dict[str, Any]]
                                 # CRITICAL: Get session ID from JSON 'id' field, not filename
                                 # The filename is ses_*.json but the actual session ID is in the JSON's 'id' field
                                 # This must match what discover_sessions() does in core.py line 619
-                                session_id = session_data.get("id", name.replace(".json", ""))
+                                session_id = session_data.get(
+                                    "id", name.replace(".json", "")
+                                )
                                 # Get the actual timestamp from session data
                                 # Try multiple fields for the timestamp
-                                timestamp_str = session_data.get("updatedAt") or session_data.get("createdAt") or session_data.get("timestamp")
+                                timestamp_str = (
+                                    session_data.get("updatedAt")
+                                    or session_data.get("createdAt")
+                                    or session_data.get("timestamp")
+                                )
                                 if timestamp_str:
                                     try:
                                         # Parse ISO format timestamp
-                                        if timestamp_str.endswith('Z'):
-                                            timestamp_str = timestamp_str[:-1] + '+00:00'
-                                        last_modified = datetime.fromisoformat(timestamp_str)
+                                        if timestamp_str.endswith("Z"):
+                                            timestamp_str = (
+                                                timestamp_str[:-1] + "+00:00"
+                                            )
+                                        last_modified = datetime.fromisoformat(
+                                            timestamp_str
+                                        )
                                     except ValueError:
-                                        last_modified = datetime.fromtimestamp(member.mtime)
+                                        last_modified = datetime.fromtimestamp(
+                                            member.mtime
+                                        )
                                 else:
                                     last_modified = datetime.fromtimestamp(member.mtime)
 
-                                sessions.append({
-                                    "session_id": session_id,
-                                    "name": session_data.get("title", session_id),
-                                    "last_modified": last_modified,
-                                    "size_bytes": member.size,
-                                })
+                                sessions.append(
+                                    {
+                                        "session_id": session_id,
+                                        "name": session_data.get("title", session_id),
+                                        "last_modified": last_modified,
+                                        "size_bytes": member.size,
+                                    }
+                                )
                         except (json.JSONDecodeError, KeyError, ValueError):
                             # If we can't parse, use minimal info
                             session_id = name.replace(".json", "")
-                            sessions.append({
-                                "session_id": session_id,
-                                "name": session_id,
-                                "last_modified": datetime.fromtimestamp(member.mtime),
-                                "size_bytes": member.size,
-                            })
+                            sessions.append(
+                                {
+                                    "session_id": session_id,
+                                    "name": session_id,
+                                    "last_modified": datetime.fromtimestamp(
+                                        member.mtime
+                                    ),
+                                    "size_bytes": member.size,
+                                }
+                            )
 
             elif tool == "claude":
                 # For Claude, sessions are in session-{id}/ directories
@@ -876,7 +983,9 @@ def get_session_details_from_archive(archive: 'Archive') -> List[Dict[str, Any]]
                     last_modified = datetime.now()  # Default fallback
                     conv_path = f"session-{session_id}/conversation.json"
                     for member in tar.getmembers():
-                        if member.name == conv_path or member.name.endswith(f"/{session_id}/conversation.json"):
+                        if member.name == conv_path or member.name.endswith(
+                            f"/{session_id}/conversation.json"
+                        ):
                             try:
                                 file = tar.extractfile(member)
                                 if file:
@@ -885,49 +994,60 @@ def get_session_details_from_archive(archive: 'Archive') -> List[Dict[str, Any]]
                                     timestamp_str = conv_data.get("timestamp")
                                     if timestamp_str:
                                         try:
-                                            last_modified = datetime.fromisoformat(timestamp_str)
+                                            last_modified = datetime.fromisoformat(
+                                                timestamp_str
+                                            )
                                         except ValueError:
-                                            last_modified = datetime.fromtimestamp(member.mtime)
+                                            last_modified = datetime.fromtimestamp(
+                                                member.mtime
+                                            )
                                     else:
-                                        last_modified = datetime.fromtimestamp(member.mtime)
+                                        last_modified = datetime.fromtimestamp(
+                                            member.mtime
+                                        )
                                     break
                             except (json.JSONDecodeError, ValueError):
                                 pass
 
-                    sessions.append({
-                        "session_id": session_id,
-                        "name": session_id,  # Claude doesn't have session names
-                        "last_modified": last_modified,
-                        "size_bytes": 0,  # Unknown without full extraction
-                    })
+                    sessions.append(
+                        {
+                            "session_id": session_id,
+                            "name": session_id,  # Claude doesn't have session names
+                            "last_modified": last_modified,
+                            "size_bytes": 0,  # Unknown without full extraction
+                        }
+                    )
 
             elif tool == "codex":
                 # For Codex, sessions are in year/month structure
                 # We'll use the session IDs from metadata
                 for session_id in session_ids:
-                    sessions.append({
-                        "session_id": session_id,
-                        "name": session_id,
-                        "last_modified": datetime.now(),
-                        "size_bytes": 0,
-                    })
+                    sessions.append(
+                        {
+                            "session_id": session_id,
+                            "name": session_id,
+                            "last_modified": datetime.now(),
+                            "size_bytes": 0,
+                        }
+                    )
 
-    except Exception as e:
+    except Exception:
         # Fallback: use session IDs from metadata with minimal info
         for session_id in session_ids:
-            sessions.append({
-                "session_id": session_id,
-                "name": session_id,
-                "last_modified": datetime.now(),
-                "size_bytes": 0,
-            })
+            sessions.append(
+                {
+                    "session_id": session_id,
+                    "name": session_id,
+                    "last_modified": datetime.now(),
+                    "size_bytes": 0,
+                }
+            )
 
     return sessions
 
 
-def check_any_session_exists(archive: 'Archive') -> bool:
-    """
-    Check if ANY session from an archive already exists locally.
+def check_any_session_exists(archive: "Archive") -> bool:
+    """Check if ANY session from an archive already exists locally.
 
     Args:
         archive: Archive object to check
@@ -964,9 +1084,8 @@ def check_any_session_exists(archive: 'Archive') -> bool:
     return False
 
 
-def check_session_exists(archive: 'Archive') -> bool:
-    """
-    Check if the session from an archive already exists locally.
+def check_session_exists(archive: "Archive") -> bool:
+    """Check if the session from an archive already exists locally.
 
     DEPRECATED: Use check_any_session_exists for multi-session archive support.
     This function is kept for backward compatibility.
@@ -981,8 +1100,7 @@ def check_session_exists(archive: 'Archive') -> bool:
 
 
 def delete_archives(archives: List[Archive], indices: List[int]) -> int:
-    """
-    Delete selected archive files.
+    """Delete selected archive files.
 
     Args:
         archives: List of all archives
@@ -1005,8 +1123,7 @@ def delete_archives(archives: List[Archive], indices: List[int]) -> int:
 
 
 def check_session_conflicts(session_ids: List[str], session_dir: Path) -> List[str]:
-    """
-    Check which sessions already exist.
+    """Check which sessions already exist.
 
     Args:
         session_ids: List of session IDs to check
@@ -1022,9 +1139,10 @@ def check_session_conflicts(session_ids: List[str], session_dir: Path) -> List[s
     return conflicts
 
 
-def transaction_copy_sessions(source_session_env: Path, target_session_dir: Path) -> int:
-    """
-    Copy session directories with transaction safety.
+def transaction_copy_sessions(
+    source_session_env: Path, target_session_dir: Path
+) -> int:
+    """Copy session directories with transaction safety.
 
     This function implements all-or-nothing semantics:
     1. Copy all sessions to a temporary staging directory
@@ -1049,7 +1167,7 @@ def transaction_copy_sessions(source_session_env: Path, target_session_dir: Path
 
     try:
         # Step 1: Create temporary staging directory
-        staging_dir = Path(tempfile.mkdtemp(prefix='session_import_'))
+        staging_dir = Path(tempfile.mkdtemp(prefix="session_import_"))
         print_info(f"Created staging directory: {staging_dir}")
 
         # Step 2: Identify sessions to copy (skip existing)
@@ -1080,7 +1198,9 @@ def transaction_copy_sessions(source_session_env: Path, target_session_dir: Path
                 print_error(f"Failed to copy session {session_id}: {e}")
                 # Rollback: remove all staged copies
                 shutil.rmtree(staging_dir)
-                raise OSError(f"Partial copy failure: session {session_id} failed. Staged copies rolled back.") from e
+                raise OSError(
+                    f"Partial copy failure: session {session_id} failed. Staged copies rolled back."
+                ) from e
 
         # Step 4: Verify all copies succeeded
         print_info("Verifying all copies...")
@@ -1088,7 +1208,9 @@ def transaction_copy_sessions(source_session_env: Path, target_session_dir: Path
             staging_session = staging_dir / session_id
             if not staging_session.exists():
                 shutil.rmtree(staging_dir)
-                raise RuntimeError(f"Verification failed: session {session_id} not found in staging directory")
+                raise RuntimeError(
+                    f"Verification failed: session {session_id} not found in staging directory"
+                )
 
         # Step 5: Atomic move to final destination
         print_info("Moving sessions to final destination...")
@@ -1114,7 +1236,7 @@ def transaction_copy_sessions(source_session_env: Path, target_session_dir: Path
 
         return added
 
-    except Exception as e:
+    except Exception:
         # Final cleanup: ensure staging directory is removed on any error
         if staging_dir and staging_dir.exists():
             try:
@@ -1131,8 +1253,7 @@ def merge_claude_history(
     archive_history: Path,
     lock_timeout: float = 30.0,
 ) -> Tuple[int, int]:
-    """
-    Merge archive history into target history with file locking.
+    """Merge archive history into target history with file locking.
 
     This function uses cross-platform file locking to prevent race conditions
     when multiple processes attempt to merge sessions concurrently. It uses
@@ -1152,7 +1273,7 @@ def merge_claude_history(
         FileLockError: If lock cannot be acquired within timeout
     """
     # Create lock file path (same directory as target with .lock extension)
-    lock_path = target_history.with_suffix('.lock')
+    lock_path = target_history.with_suffix(".lock")
 
     # Acquire lock FIRST to prevent TOCTOU race condition
     # The lock must be held for the entire read-modify-write cycle
@@ -1165,33 +1286,37 @@ def merge_claude_history(
         existing_ids = set()
         if target_history.exists():
             try:
-                with open(target_history, 'r', encoding='utf-8') as f:
+                with open(target_history, encoding="utf-8") as f:
                     for line_num, line in enumerate(f, 1):
                         line_stripped = line.strip()
                         if not line_stripped:
                             continue
 
                         # Allow comment lines (starting with #) for human-readable comments
-                        if line_stripped.startswith('#'):
+                        if line_stripped.startswith("#"):
                             continue
 
                         # Validate line size before parsing
-                        if not validate_json_line_size(line_stripped, str(target_history), line_num):
+                        if not validate_json_line_size(
+                            line_stripped, str(target_history), line_num
+                        ):
                             continue
 
                         try:
                             data = json.loads(line_stripped)
                             # Validate JSON schema and sessionId
-                            if validate_session_json_schema(data, str(target_history), line_num):
-                                if 'sessionId' in data:
-                                    existing_ids.add(data['sessionId'])
+                            if validate_session_json_schema(
+                                data, str(target_history), line_num
+                            ):
+                                if "sessionId" in data:
+                                    existing_ids.add(data["sessionId"])
                         except json.JSONDecodeError as e:
                             security_logger.warning(
                                 f"Invalid JSON in {target_history}:{line_num}: {e}"
                             )
                             continue
-            except (IOError, OSError) as e:
-                raise IOError(
+            except OSError as e:
+                raise OSError(
                     f"Failed to read target history {target_history}: {e}"
                 ) from e
 
@@ -1201,19 +1326,21 @@ def merge_claude_history(
         new_lines = []
 
         try:
-            with open(archive_history, 'r', encoding='utf-8') as f:
+            with open(archive_history, encoding="utf-8") as f:
                 for line_num, line in enumerate(f, 1):
                     line_stripped = line.strip()
                     if not line_stripped:
                         continue
 
                     # Preserve comment lines (starting with #) for human-readable comments
-                    if line_stripped.startswith('#'):
+                    if line_stripped.startswith("#"):
                         new_lines.append(line_stripped)
                         continue
 
                     # Validate line size before parsing
-                    if not validate_json_line_size(line_stripped, str(archive_history), line_num):
+                    if not validate_json_line_size(
+                        line_stripped, str(archive_history), line_num
+                    ):
                         skipped += 1
                         continue
 
@@ -1221,11 +1348,13 @@ def merge_claude_history(
                         data = json.loads(line_stripped)
 
                         # Validate JSON schema and sessionId
-                        if not validate_session_json_schema(data, str(archive_history), line_num):
+                        if not validate_session_json_schema(
+                            data, str(archive_history), line_num
+                        ):
                             skipped += 1
                             continue
 
-                        session_id = data.get('sessionId')
+                        session_id = data.get("sessionId")
                         if session_id and session_id not in existing_ids:
                             new_lines.append(line_stripped)
                             existing_ids.add(session_id)
@@ -1238,8 +1367,8 @@ def merge_claude_history(
                         )
                         # Skip malformed lines instead of crashing
                         skipped += 1
-        except (IOError, OSError) as e:
-            raise IOError(
+        except OSError as e:
+            raise OSError(
                 f"Failed to read archive history {archive_history}: {e}"
             ) from e
 
@@ -1248,23 +1377,23 @@ def merge_claude_history(
         if new_lines:
             try:
                 # Create temporary file in same directory for atomic replace
-                temp_path = target_history.with_suffix('.tmp')
+                temp_path = target_history.with_suffix(".tmp")
 
                 # Read existing content if it exists
                 existing_lines = []
                 if target_history.exists():
-                    with open(target_history, 'r', encoding='utf-8') as f_read:
+                    with open(target_history, encoding="utf-8") as f_read:
                         existing_lines = f_read.readlines()
 
                 # Write combined content to temporary file
-                with open(temp_path, 'w', encoding='utf-8') as f:
+                with open(temp_path, "w", encoding="utf-8") as f:
                     # Write existing lines
                     for line in existing_lines:
-                        f.write(line if line.endswith('\n') else line + '\n')
+                        f.write(line if line.endswith("\n") else line + "\n")
 
                     # Write new lines
                     for line in new_lines:
-                        f.write(line + '\n')
+                        f.write(line + "\n")
 
                     # Ensure data is flushed to disk BEFORE closing
                     f.flush()
@@ -1275,15 +1404,15 @@ def merge_claude_history(
                 # os.replace() is atomic on POSIX and Windows Vista+
                 os.replace(str(temp_path), str(target_history))
 
-            except (IOError, OSError) as e:
+            except OSError as e:
                 # Clean up temp file if it exists
-                temp_path = target_history.with_suffix('.tmp')
+                temp_path = target_history.with_suffix(".tmp")
                 try:
                     if temp_path.exists():
                         temp_path.unlink()
                 except OSError:
                     pass
-                raise IOError(
+                raise OSError(
                     f"Failed to write target history {target_history}: {e}"
                 ) from e
 
@@ -1292,7 +1421,9 @@ def merge_claude_history(
 
 def main() -> int:
     """Main import function."""
-    archive_dir = Path.home() / 'OneDrive' / 'Desktop' / 'Current' / '!SyncSessionDoNotDelete!'
+    archive_dir = (
+        Path.home() / "OneDrive" / "Desktop" / "Current" / "!SyncSessionDoNotDelete!"
+    )
 
     print_info("AI Tool Session Import")
     print_info("=" * 40)
@@ -1300,7 +1431,9 @@ def main() -> int:
     # Validate archive directory
     if not archive_dir.exists():
         print_error(f"Archive directory not found: {archive_dir}")
-        print_info("Please ensure OneDrive is configured and the Desktop/Current/!SyncSessionDoNotDelete! folder exists.")
+        print_info(
+            "Please ensure OneDrive is configured and the Desktop/Current/!SyncSessionDoNotDelete! folder exists."
+        )
         return 1
 
     # Discover archives
@@ -1324,12 +1457,21 @@ def main() -> int:
     if not metadata:
         print_warning("Could not load metadata from archive")
         response = input("Continue anyway? (y/N): ").strip().lower()
-        if response != 'y':
+        if response != "y":
             print_info("Import cancelled")
             return 1
 
     # Get tool type and directories
-    tool = metadata.session.tool
+    if metadata is not None:
+        tool = metadata.session.tool
+    else:
+        archive_name = selected_archive.archive_path.name.lower()
+        if archive_name.startswith("codex-"):
+            tool = "codex"
+        elif archive_name.startswith("opencode-"):
+            tool = "opencode"
+        else:
+            tool = "claude"
     session_dir, _config_dir = get_tool_directories(tool)
 
     # Validate checksum
@@ -1338,7 +1480,7 @@ def main() -> int:
         print_error("Checksum validation failed!")
         print_warning("The archive may be corrupted or modified")
         response = input("Continue anyway? (y/N): ").strip().lower()
-        if response != 'y':
+        if response != "y":
             print_info("Import cancelled")
             return 1
 
@@ -1360,7 +1502,9 @@ def main() -> int:
                     break
                 elif mode_choice == "2":
                     merge_mode = False
-                    print_warning("Using replace mode - existing sessions will be overwritten")
+                    print_warning(
+                        "Using replace mode - existing sessions will be overwritten"
+                    )
                     break
                 else:
                     print_error("Invalid choice, please enter 1 or 2")
@@ -1374,7 +1518,7 @@ def main() -> int:
         if session_file.exists():
             print_error(f"Session already exists: {session_id}")
             response = input("Overwrite existing session? (y/N): ").strip().lower()
-            if response != 'y':
+            if response != "y":
                 print_info("Import cancelled")
                 return 1
             print_warning("Existing session will be overwritten")
@@ -1388,7 +1532,7 @@ def main() -> int:
         if not merge_mode and check_session_conflict(session_id, session_dir):
             print_error(f"Session already exists: {session_id}")
             response = input("Overwrite existing session? (y/N): ").strip().lower()
-            if response != 'y':
+            if response != "y":
                 print_info("Import cancelled")
                 return 1
             print_warning("Existing session will be overwritten")
@@ -1415,27 +1559,38 @@ def main() -> int:
     print_info(f"Extracting archive: {selected_archive.archive_path.name}")
     try:
         # Extract to temporary location first
-        import tempfile
         import shutil
+        import tempfile
+
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             extract_archive(selected_archive.archive_path, temp_path)
 
             # Check if this is a multi-session archive structure
-            multi_session_structure = any(d.name.startswith("session-") for d in temp_path.iterdir() if d.is_dir())
+            multi_session_structure = any(
+                d.name.startswith("session-") for d in temp_path.iterdir() if d.is_dir()
+            )
 
             if multi_session_structure:
                 # Multi-session archive
                 print_info("Multi-session archive detected")
 
                 if is_selective:
-                    print_info(f"Importing {len(selected_session_ids)} selected session(s)...")
+                    print_info(
+                        f"Importing {len(selected_session_ids)} selected session(s)..."
+                    )
 
                 # Get all session directories
-                session_dirs = [d for d in temp_path.iterdir() if d.is_dir() and d.name.startswith("session-")]
+                session_dirs = [
+                    d
+                    for d in temp_path.iterdir()
+                    if d.is_dir() and d.name.startswith("session-")
+                ]
 
                 for session_dir_item in session_dirs:
-                    session_id_from_dir = session_dir_item.name.replace("session-", "", 1)
+                    session_id_from_dir = session_dir_item.name.replace(
+                        "session-", "", 1
+                    )
 
                     # Skip if selective import and this session is not selected
                     if is_selective and session_id_from_dir not in selected_session_ids:
@@ -1446,14 +1601,21 @@ def main() -> int:
                     if tool == "claude":
                         # For Claude, the session directory contains the session data
                         # Check if it's a session-env directory structure
-                        session_env_dir = session_dir_item / ".claude" / "session-env" / session_id_from_dir
+                        session_env_dir = (
+                            session_dir_item
+                            / ".claude"
+                            / "session-env"
+                            / session_id_from_dir
+                        )
                         if session_env_dir.exists():
                             # Copy to local session-env
                             target_session = session_dir / session_id_from_dir
                             if not merge_mode and target_session.exists():
                                 shutil.rmtree(target_session)
                             if merge_mode and target_session.exists():
-                                print_info(f"Session {session_id_from_dir} already exists, skipping")
+                                print_info(
+                                    f"Session {session_id_from_dir} already exists, skipping"
+                                )
                                 continue
                             shutil.copytree(session_env_dir, target_session)
                             print_success(f"Added session: {session_id_from_dir}")
@@ -1461,13 +1623,17 @@ def main() -> int:
                         # Also check for history.jsonl
                         history_file = session_dir_item / ".claude" / "history.jsonl"
                         if history_file.exists():
-                            target_history = Path.home() / '.claude' / 'history.jsonl'
+                            target_history = Path.home() / ".claude" / "history.jsonl"
                             target_history.parent.mkdir(parents=True, exist_ok=True)
                             if not target_history.exists():
-                                target_history.write_text('')
-                            added, skipped = merge_claude_history(target_history, history_file)
+                                target_history.write_text("")
+                            added, skipped = merge_claude_history(
+                                target_history, history_file
+                            )
                             if added > 0:
-                                print_success(f"Merged {added} history entries for {session_id_from_dir}")
+                                print_success(
+                                    f"Merged {added} history entries for {session_id_from_dir}"
+                                )
 
                     elif tool == "opencode":
                         # Find the session JSON file
@@ -1477,7 +1643,9 @@ def main() -> int:
                                 if "session" in session_file.name.lower():
                                     target_session = session_dir / session_file.name
                                     shutil.copy2(session_file, target_session)
-                                    print_success(f"Added opencode session: {session_id_from_dir}")
+                                    print_success(
+                                        f"Added opencode session: {session_id_from_dir}"
+                                    )
                                     break
 
                     elif tool == "codex":
@@ -1492,7 +1660,7 @@ def main() -> int:
                 # Handle opencode session (single session archive)
                 extracted_session = temp_path / f"{session_id}.json"
                 if not extracted_session.exists():
-                    raise IOError("Session file not found in archive")
+                    raise OSError("Session file not found in archive")
 
                 print_info("Installing opencode session...")
                 # Ensure target directory exists
@@ -1506,7 +1674,7 @@ def main() -> int:
                 # Find the extracted session directory
                 extracted_session_dir = None
                 for item in temp_path.iterdir():
-                    if item.is_dir() and item.name.startswith('2026'):
+                    if item.is_dir() and item.name.startswith("2026"):
                         # This is the year directory, navigate to the actual session
                         for year_dir in item.iterdir():
                             if year_dir.is_dir():
@@ -1523,17 +1691,18 @@ def main() -> int:
 
                 if not extracted_session_dir:
                     # Fallback: look for any directory containing rollout files
-                    for item in temp_path.rglob('*'):
-                        if item.is_dir() and list(item.glob('rollout-*.jsonl')):
+                    for item in temp_path.rglob("*"):
+                        if item.is_dir() and list(item.glob("rollout-*.jsonl")):
                             extracted_session_dir = item
                             break
 
                 if not extracted_session_dir:
-                    raise IOError("Could not find codex session directory in archive")
+                    raise OSError("Could not find codex session directory in archive")
 
                 # Determine target path (year/month structure)
                 # Use current year/month for import
                 from datetime import datetime
+
                 now = datetime.now()
                 target_path = session_dir / str(now.year) / f"{now.month:02d}"
                 target_path.mkdir(parents=True, exist_ok=True)
@@ -1545,44 +1714,48 @@ def main() -> int:
                 shutil.copytree(extracted_session_dir, target_session)
 
                 # Handle .codex config files if present
-                extracted_codex = temp_path / '.codex'
+                extracted_codex = temp_path / ".codex"
                 if extracted_codex.exists():
                     print_info("Updating .codex configuration...")
-                    for item in extracted_codex.rglob('*'):
+                    for item in extracted_codex.rglob("*"):
                         if item.is_file():
-                            target_item = Path.home() / '.codex' / item.name
+                            target_item = Path.home() / ".codex" / item.name
                             target_item.parent.mkdir(parents=True, exist_ok=True)
                             shutil.copy2(item, target_item)
 
             else:
                 # Handle claude session with merge support
-                extracted_history = temp_path / '.claude' / 'history.jsonl'
+                extracted_history = temp_path / ".claude" / "history.jsonl"
 
                 if merge_mode and extracted_history.exists():
                     # Merge mode: combine history files
                     print_info("Merging sessions using merge mode...")
 
                     # Get target history path
-                    target_history = Path.home() / '.claude' / 'history.jsonl'
+                    target_history = Path.home() / ".claude" / "history.jsonl"
 
                     # Ensure target directory exists
                     target_history.parent.mkdir(parents=True, exist_ok=True)
 
                     # Create target history if it doesn't exist
                     if not target_history.exists():
-                        target_history.write_text('')
+                        target_history.write_text("")
 
                     # Merge histories
-                    added, skipped = merge_claude_history(target_history, extracted_history)
+                    added, skipped = merge_claude_history(
+                        target_history, extracted_history
+                    )
                     print_info(f"Sessions added: {added}, skipped: {skipped}")
 
                     # Handle session-env directories (only add non-existing)
                     # CRIT-002 FIX: Use transaction-safe copy to prevent partial copy failures
-                    extracted_session_env = temp_path / '.claude' / 'session-env'
+                    extracted_session_env = temp_path / ".claude" / "session-env"
                     if extracted_session_env.exists():
                         print_info("Adding new session environments...")
                         try:
-                            added_count = transaction_copy_sessions(extracted_session_env, session_dir)
+                            added_count = transaction_copy_sessions(
+                                extracted_session_env, session_dir
+                            )
                             print_info(f"Successfully added {added_count} session(s)")
                         except OSError as e:
                             # Transaction copy failed with automatic rollback
@@ -1591,18 +1764,26 @@ def main() -> int:
                             raise
 
                     # Handle .claude directory (config files) - merge, don't replace
-                    extracted_claude = temp_path / '.claude'
+                    extracted_claude = temp_path / ".claude"
                     if extracted_claude.exists():
                         print_info("Merging .claude configuration...")
-                        for item in extracted_claude.rglob('*'):
+                        for item in extracted_claude.rglob("*"):
                             if item.is_file():
                                 # Skip history.jsonl and session-env (already handled)
-                                if 'history.jsonl' in str(item) or 'session-env' in str(item):
+                                if "history.jsonl" in str(item) or "session-env" in str(
+                                    item
+                                ):
                                     continue
-                                target_item = Path.home() / '.claude' / item.relative_to(extracted_claude)
+                                target_item = (
+                                    Path.home()
+                                    / ".claude"
+                                    / item.relative_to(extracted_claude)
+                                )
                                 # Only copy if target doesn't exist (merge behavior)
                                 if not target_item.exists():
-                                    target_item.parent.mkdir(parents=True, exist_ok=True)
+                                    target_item.parent.mkdir(
+                                        parents=True, exist_ok=True
+                                    )
                                     shutil.copy2(item, target_item)
 
                 else:
@@ -1610,20 +1791,20 @@ def main() -> int:
                     extracted_session = temp_path / f"{session_id}.json"
                     if not extracted_session.exists():
                         # Try new format location
-                        extracted_session = temp_path / '.claude' / 'history.jsonl'
+                        extracted_session = temp_path / ".claude" / "history.jsonl"
                         if not extracted_session.exists():
-                            raise IOError("Session file not found in archive")
+                            raise OSError("Session file not found in archive")
 
                     print_info("Installing claude session (replace mode)...")
 
                     # Handle history.jsonl
                     if extracted_history.exists():
-                        target_history = Path.home() / '.claude' / 'history.jsonl'
+                        target_history = Path.home() / ".claude" / "history.jsonl"
                         target_history.parent.mkdir(parents=True, exist_ok=True)
                         shutil.copy2(extracted_history, target_history)
 
                     # Handle session-env directory
-                    extracted_session_env = temp_path / '.claude' / 'session-env'
+                    extracted_session_env = temp_path / ".claude" / "session-env"
                     if extracted_session_env.exists():
                         for session_path_item in extracted_session_env.iterdir():
                             if session_path_item.is_dir():
@@ -1634,15 +1815,21 @@ def main() -> int:
                                 shutil.copytree(session_path_item, target_session_item)
 
                     # Handle .claude directory if present
-                    extracted_claude = temp_path / '.claude'
+                    extracted_claude = temp_path / ".claude"
                     if extracted_claude.exists():
                         print_info("Updating .claude directory...")
-                        for item in extracted_claude.rglob('*'):
+                        for item in extracted_claude.rglob("*"):
                             if item.is_file():
                                 # Skip history.jsonl and session-env (already handled)
-                                if 'history.jsonl' in str(item) or 'session-env' in str(item):
+                                if "history.jsonl" in str(item) or "session-env" in str(
+                                    item
+                                ):
                                     continue
-                                target_item = Path.home() / '.claude' / item.relative_to(extracted_claude)
+                                target_item = (
+                                    Path.home()
+                                    / ".claude"
+                                    / item.relative_to(extracted_claude)
+                                )
                                 target_item.parent.mkdir(parents=True, exist_ok=True)
                                 shutil.copy2(item, target_item)
 
@@ -1659,5 +1846,5 @@ def main() -> int:
         return 1
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

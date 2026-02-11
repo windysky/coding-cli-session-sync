@@ -1,5 +1,4 @@
-"""
-Security tests for archive extraction.
+"""Security tests for archive extraction.
 
 This module contains tests to verify that archive extraction
 properly defends against:
@@ -13,7 +12,6 @@ properly defends against:
 import tarfile
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -596,7 +594,6 @@ class TestTemporaryFileSecurity:
         # This test verifies the fix for SEC-001
         # We need to test that mkstemp is used with proper permissions
 
-        import tempfile
         import os
         import stat
 
@@ -619,7 +616,6 @@ class TestTemporaryFileSecurity:
 
     def test_temporary_file_cleanup_on_error(self, tmp_path):
         """Test that temporary files are cleaned up even if loading fails."""
-        import tempfile
         import os
         from pathlib import Path
 
@@ -659,9 +655,10 @@ class TestAuthFileExclusion:
 
     def test_auth_files_excluded_from_codex_export(self, tmp_path):
         """Test that auth.json is excluded from Codex exports."""
-        from session_sync.core import _is_auth_file
         from pathlib import Path
-        
+
+        from session_sync.core import _is_auth_file
+
         # Test known auth file patterns
         auth_files = [
             "auth.json",
@@ -674,16 +671,17 @@ class TestAuthFileExclusion:
             "secret.json",
             "session_tokens.json",
         ]
-        
+
         for auth_file in auth_files:
             test_path = Path("/fake/path") / auth_file
             assert _is_auth_file(test_path), f"{auth_file} should be identified as auth file"
-    
+
     def test_non_auth_files_not_excluded(self, tmp_path):
         """Test that normal files are not flagged as auth files."""
-        from session_sync.core import _is_auth_file
         from pathlib import Path
-        
+
+        from session_sync.core import _is_auth_file
+
         # Test non-auth file patterns
         normal_files = [
             "config.toml",
@@ -694,23 +692,24 @@ class TestAuthFileExclusion:
             "data.txt",
             "README.md",
         ]
-        
+
         for normal_file in normal_files:
             test_path = Path("/fake/path") / normal_file
             assert not _is_auth_file(test_path), f"{normal_file} should not be flagged as auth file"
-    
+
     def test_auth_file_with_token_in_name_excluded(self, tmp_path):
         """Test that files containing 'token' in name are excluded."""
-        from session_sync.core import _is_auth_file
         from pathlib import Path
-        
+
+        from session_sync.core import _is_auth_file
+
         token_files = [
             "refresh_token.json",
             "my_token.txt",
             "bearer_token.dat",
             "session_token",
         ]
-        
+
         for token_file in token_files:
             test_path = Path("/fake/path") / token_file
             assert _is_auth_file(test_path), f"{token_file} should be identified as auth file"

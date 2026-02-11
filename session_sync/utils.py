@@ -1,18 +1,16 @@
-"""
-Utility functions for session synchronization.
+"""Utility functions for session synchronization.
 
 This module provides shared utility functions used across
 the session_sync package for consistent output formatting.
 """
 
 import sys
-from typing import List, Tuple
 from pathlib import Path
+from typing import List, Set, Tuple
 
 
 def print_error(message: str) -> None:
-    """
-    Print error message to stderr.
+    """Print error message to stderr.
 
     Args:
         message: Error message to display
@@ -21,8 +19,7 @@ def print_error(message: str) -> None:
 
 
 def print_success(message: str) -> None:
-    """
-    Print success message to stdout.
+    """Print success message to stdout.
 
     Args:
         message: Success message to display
@@ -31,8 +28,7 @@ def print_success(message: str) -> None:
 
 
 def print_info(message: str) -> None:
-    """
-    Print info message to stdout.
+    """Print info message to stdout.
 
     Args:
         message: Info message to display
@@ -41,8 +37,7 @@ def print_info(message: str) -> None:
 
 
 def print_warning(message: str) -> None:
-    """
-    Print warning message to stdout.
+    """Print warning message to stdout.
 
     Args:
         message: Warning message to display
@@ -51,8 +46,7 @@ def print_warning(message: str) -> None:
 
 
 def get_tool_directories(tool: str) -> Tuple[Path, Path]:
-    """
-    Get session and config directories for the selected tool.
+    """Get session and config directories for the selected tool.
 
     Args:
         tool: Tool type (codex, opencode, claude)
@@ -64,25 +58,24 @@ def get_tool_directories(tool: str) -> Tuple[Path, Path]:
 
     if tool == "opencode":
         # OpenCode sessions are in storage/session/global/
-        opencode_base = home_dir / '.local' / 'share' / 'opencode'
-        session_dir = opencode_base / 'storage' / 'session' / 'global'
+        opencode_base = home_dir / ".local" / "share" / "opencode"
+        session_dir = opencode_base / "storage" / "session" / "global"
         config_dir = opencode_base
     elif tool == "codex":
-        session_dir = home_dir / '.codex' / 'sessions'
-        config_dir = home_dir / '.codex'
+        session_dir = home_dir / ".codex" / "sessions"
+        config_dir = home_dir / ".codex"
     else:
         # claude (default)
         # For export: session-env directory for session IDs
         # For import: sessions directory
-        session_dir = home_dir / '.claude' / 'sessions'
-        config_dir = home_dir / '.claude'
+        session_dir = home_dir / ".claude" / "sessions"
+        config_dir = home_dir / ".claude"
 
     return session_dir, config_dir
 
 
 def parse_session_selection(input_str: str, max_sessions: int) -> List[int]:
-    """
-    Parse session selection input.
+    """Parse session selection input.
 
     Examples:
     - "1" -> [0]
@@ -102,18 +95,18 @@ def parse_session_selection(input_str: str, max_sessions: int) -> List[int]:
     if not input_str:
         return []
 
-    if input_str == 'all':
+    if input_str == "all":
         return list(range(max_sessions))
 
-    selected: set[int] = set()
-    parts = input_str.split(',')
+    selected: Set[int] = set()
+    parts = input_str.split(",")
 
     for part in parts:
         part = part.strip()
-        if '-' in part:
+        if "-" in part:
             # Range: 1-5
             try:
-                start, end = part.split('-')
+                start, end = part.split("-")
                 start_idx = int(start) - 1
                 end_idx = int(end)
                 # Clamp to valid range

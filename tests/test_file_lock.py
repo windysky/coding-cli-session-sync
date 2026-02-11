@@ -1,5 +1,4 @@
-"""
-Tests for cross-platform file locking functionality.
+"""Tests for cross-platform file locking functionality.
 
 Tests cover:
 - Basic lock acquisition and release
@@ -12,14 +11,9 @@ Tests cover:
 
 import json
 import os
-import sys
-import tempfile
 import time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
-from contextlib import contextmanager
 from pathlib import Path
-from threading import Thread, Event
-from typing import List
+from threading import Event, Thread
 
 import pytest
 
@@ -36,7 +30,7 @@ class TestFileLockBasic:
 
     def test_lock_acquire_release(self, tmp_path):
         """Test basic lock acquisition and release."""
-        lock_path = tmp_path / 'test.lock'
+        lock_path = tmp_path / "test.lock"
 
         # Acquire and release lock
         lock = FileLock(lock_path, timeout=5.0)
@@ -50,7 +44,7 @@ class TestFileLockBasic:
 
     def test_lock_context_manager(self, tmp_path):
         """Test lock as context manager."""
-        lock_path = tmp_path / 'test.lock'
+        lock_path = tmp_path / "test.lock"
 
         with FileLock(lock_path, timeout=5.0) as lock:
             assert lock._is_locked
@@ -61,9 +55,9 @@ class TestFileLockBasic:
 
     def test_lock_write_pid(self, tmp_path):
         """Test that lock file contains PID."""
-        lock_path = tmp_path / 'test.lock'
+        lock_path = tmp_path / "test.lock"
 
-        with FileLock(lock_path, timeout=5.0) as lock:
+        with FileLock(lock_path, timeout=5.0):
             # Check lock file contains current PID
             pid_str = lock_path.read_text().strip()
             assert pid_str.isdigit()
@@ -71,7 +65,7 @@ class TestFileLockBasic:
 
     def test_lock_prevent_concurrent_access(self, tmp_path):
         """Test that lock prevents concurrent access."""
-        lock_path = tmp_path / 'test.lock'
+        lock_path = tmp_path / "test.lock"
         results = []
         t1_ready = Event()
         t2_go = Event()
@@ -123,7 +117,7 @@ class TestFileLockBasic:
 
     def test_lock_timeout(self, tmp_path):
         """Test lock timeout behavior."""
-        lock_path = tmp_path / 'test.lock'
+        lock_path = tmp_path / "test.lock"
 
         # Acquire lock in main thread
         lock1 = FileLock(lock_path, timeout=5.0)
@@ -147,13 +141,13 @@ class TestFileLockBasic:
 
     def test_lock_concurrent_writes(self, tmp_path):
         """Test that lock prevents concurrent writes."""
-        lock_path = tmp_path / 'test.lock'
-        data_path = tmp_path / 'data.txt'
+        lock_path = tmp_path / "test.lock"
+        data_path = tmp_path / "data.txt"
         results = []
 
         def write_data(thread_id: int, count: int):
             """Write data with lock protection."""
-            for i in range(count):
+            for _i in range(count):
                 with FileLock(lock_path, timeout=5.0):
                     # Read current value
                     current = 0
@@ -162,7 +156,7 @@ class TestFileLockBasic:
 
                     # Write new value
                     data_path.write_text(str(current + 1))
-                    results.append(f"t{thread_id}:{current+1}")
+                    results.append(f"t{thread_id}:{current + 1}")
 
         # Run concurrent writers
         threads = []
@@ -185,7 +179,7 @@ class TestStaleLockHandling:
 
     def test_stale_lock_by_age(self, tmp_path, monkeypatch):
         """Test detection and removal of stale locks by age."""
-        lock_path = tmp_path / 'test.lock'
+        lock_path = tmp_path / "test.lock"
 
         # Create a lock file with old timestamp
         lock_path.write_text("12345")
@@ -200,7 +194,7 @@ class TestStaleLockHandling:
 
     def test_stale_lock_by_dead_process(self, tmp_path):
         """Test detection of stale lock from dead process."""
-        lock_path = tmp_path / 'test.lock'
+        lock_path = tmp_path / "test.lock"
 
         # Use a non-existent PID
         fake_pid = 99999
@@ -215,7 +209,7 @@ class TestStaleLockHandling:
 
     def test_active_lock_not_removed(self, tmp_path):
         """Test that active locks are not removed."""
-        lock_path = tmp_path / 'test.lock'
+        lock_path = tmp_path / "test.lock"
 
         # Create active lock
         lock1 = FileLock(lock_path, timeout=5.0)
@@ -224,7 +218,7 @@ class TestStaleLockHandling:
         # Try to acquire with another instance - should fail
         # (not remove the lock)
         lock2 = FileLock(lock_path, timeout=0.5)
-        with pytest.raises(FileLockError) as exc_info:
+        with pytest.raises(FileLockError):
             lock2.acquire()
 
         assert lock2._lock_fd is None
@@ -241,7 +235,7 @@ class TestAtomicWrite:
 
     def test_atomic_write_basic(self, tmp_path):
         """Test basic atomic write."""
-        file_path = tmp_path / 'output.txt'
+        file_path = tmp_path / "output.txt"
 
         with atomic_write(file_path) as f:
             f.write("Hello, World!")
@@ -252,7 +246,7 @@ class TestAtomicWrite:
 
     def test_atomic_write_overwrite(self, tmp_path):
         """Test atomic write overwrites existing file."""
-        file_path = tmp_path / 'output.txt'
+        file_path = tmp_path / "output.txt"
         file_path.write_text("Old content")
 
         with atomic_write(file_path) as f:
@@ -262,25 +256,25 @@ class TestAtomicWrite:
 
     def test_atomic_write_encoding(self, tmp_path):
         """Test atomic write with encoding."""
-        file_path = tmp_path / 'output.txt'
+        file_path = tmp_path / "output.txt"
 
-        with atomic_write(file_path, encoding='utf-8') as f:
+        with atomic_write(file_path, encoding="utf-8") as f:
             f.write("Hello, 世界!")
 
-        assert file_path.read_text(encoding='utf-8') == "Hello, 世界!"
+        assert file_path.read_text(encoding="utf-8") == "Hello, 世界!"
 
     def test_atomic_write_binary(self, tmp_path):
         """Test atomic write in binary mode."""
-        file_path = tmp_path / 'output.bin'
+        file_path = tmp_path / "output.bin"
 
-        with atomic_write(file_path, mode='wb') as f:
-            f.write(b'\x00\x01\x02\x03')
+        with atomic_write(file_path, mode="wb") as f:
+            f.write(b"\x00\x01\x02\x03")
 
-        assert file_path.read_bytes() == b'\x00\x01\x02\x03'
+        assert file_path.read_bytes() == b"\x00\x01\x02\x03"
 
     def test_atomic_write_cleanup_on_error(self, tmp_path):
         """Test that temp file is cleaned up on error."""
-        file_path = tmp_path / 'output.txt'
+        file_path = tmp_path / "output.txt"
 
         with pytest.raises(ValueError):
             with atomic_write(file_path) as f:
@@ -289,12 +283,12 @@ class TestAtomicWrite:
 
         # Main file should not exist or have old content
         # Temp file should be cleaned up
-        temp_files = list(tmp_path.glob('*.tmp'))
+        temp_files = list(tmp_path.glob("*.tmp"))
         assert len(temp_files) == 0
 
     def test_atomic_write_concurrent(self, tmp_path):
         """Test concurrent atomic writes are serialized by lock."""
-        file_path = tmp_path / 'counter.txt'
+        file_path = tmp_path / "counter.txt"
         results = []
         errors = []
 
@@ -321,7 +315,7 @@ class TestAtomicWrite:
                         f.write(str(new_value))
 
                     results.append(f"t{thread_id}:wrote{i}")
-                except (ValueError, IOError) as e:
+                except (OSError, ValueError) as e:
                     errors.append((thread_id, i, str(e)))
 
         # Run concurrent writers
@@ -353,14 +347,13 @@ class TestMergeClaudeHistory:
         from import_session import merge_claude_history
 
         # Create target history
-        target = tmp_path / 'history.jsonl'
+        target = tmp_path / "history.jsonl"
         target.write_text('{"sessionId":"sess1","data":"a"}\n')
 
         # Create archive history
-        archive = tmp_path / 'archive.jsonl'
+        archive = tmp_path / "archive.jsonl"
         archive.write_text(
-            '{"sessionId":"sess1","data":"a"}\n'
-            '{"sessionId":"sess2","data":"b"}\n'
+            '{"sessionId":"sess1","data":"a"}\n{"sessionId":"sess2","data":"b"}\n'
         )
 
         # Merge
@@ -370,20 +363,20 @@ class TestMergeClaudeHistory:
         assert skipped == 1
 
         # Check merged content
-        lines = target.read_text().strip().split('\n')
+        lines = target.read_text().strip().split("\n")
         assert len(lines) == 2
         session_ids = set()
         for line in lines:
             data = json.loads(line)
-            session_ids.add(data['sessionId'])
-        assert session_ids == {'sess1', 'sess2'}
+            session_ids.add(data["sessionId"])
+        assert session_ids == {"sess1", "sess2"}
 
     def test_merge_concurrent(self, tmp_path):
         """Test concurrent merge operations."""
         from import_session import merge_claude_history
 
-        target = tmp_path / 'history.jsonl'
-        target.write_text('')  # Empty initial file
+        target = tmp_path / "history.jsonl"
+        target.write_text("")  # Empty initial file
 
         results = []
         errors = []
@@ -391,7 +384,7 @@ class TestMergeClaudeHistory:
         def merge_session(session_id: str):
             """Merge a single session."""
             try:
-                archive = tmp_path / f'archive_{session_id}.jsonl'
+                archive = tmp_path / f"archive_{session_id}.jsonl"
                 archive.write_text(f'{{"sessionId":"{session_id}","data":"x"}}\n')
                 added, skipped = merge_claude_history(target, archive)
                 results.append((session_id, added, skipped))
@@ -401,7 +394,7 @@ class TestMergeClaudeHistory:
         # Run concurrent merges
         threads = []
         for i in range(10):
-            t = Thread(target=merge_session, args=(f'sess{i}',))
+            t = Thread(target=merge_session, args=(f"sess{i}",))
             threads.append(t)
             t.start()
 
@@ -414,12 +407,12 @@ class TestMergeClaudeHistory:
         assert len(results) == 10
 
         # Check all sessions were added
-        lines = target.read_text().strip().split('\n')
+        lines = target.read_text().strip().split("\n")
         session_ids = set()
         for line in lines:
             if line:
                 data = json.loads(line)
-                session_ids.add(data['sessionId'])
+                session_ids.add(data["sessionId"])
 
         assert len(session_ids) == 10
 
@@ -427,17 +420,15 @@ class TestMergeClaudeHistory:
         """Test merge preserves existing content."""
         from import_session import merge_claude_history
 
-        target = tmp_path / 'history.jsonl'
+        target = tmp_path / "history.jsonl"
         original_content = (
-            '{"sessionId":"sess1","data":"a"}\n'
-            '{"sessionId":"sess2","data":"b"}\n'
+            '{"sessionId":"sess1","data":"a"}\n{"sessionId":"sess2","data":"b"}\n'
         )
         target.write_text(original_content)
 
-        archive = tmp_path / 'archive.jsonl'
+        archive = tmp_path / "archive.jsonl"
         archive.write_text(
-            '{"sessionId":"sess2","data":"b"}\n'
-            '{"sessionId":"sess3","data":"c"}\n'
+            '{"sessionId":"sess2","data":"b"}\n{"sessionId":"sess3","data":"c"}\n'
         )
 
         added, skipped = merge_claude_history(target, archive)
@@ -446,29 +437,23 @@ class TestMergeClaudeHistory:
         assert skipped == 1
 
         # Check original content preserved
-        lines = target.read_text().strip().split('\n')
+        lines = target.read_text().strip().split("\n")
         assert len(lines) == 3
         session_ids = set()
         for line in lines:
             data = json.loads(line)
-            session_ids.add(data['sessionId'])
-        assert session_ids == {'sess1', 'sess2', 'sess3'}
+            session_ids.add(data["sessionId"])
+        assert session_ids == {"sess1", "sess2", "sess3"}
 
     def test_merge_non_json_lines(self, tmp_path):
         """Test that non-JSON lines are preserved."""
         from import_session import merge_claude_history
 
-        target = tmp_path / 'history.jsonl'
-        target.write_text(
-            '{"sessionId":"sess1","data":"a"}\n'
-            '# Comment line\n'
-        )
+        target = tmp_path / "history.jsonl"
+        target.write_text('{"sessionId":"sess1","data":"a"}\n# Comment line\n')
 
-        archive = tmp_path / 'archive.jsonl'
-        archive.write_text(
-            '{"sessionId":"sess2","data":"b"}\n'
-            '# Another comment\n'
-        )
+        archive = tmp_path / "archive.jsonl"
+        archive.write_text('{"sessionId":"sess2","data":"b"}\n# Another comment\n')
 
         added, skipped = merge_claude_history(target, archive)
 
@@ -476,8 +461,8 @@ class TestMergeClaudeHistory:
 
         # Check comment lines preserved
         content = target.read_text()
-        assert '# Comment line' in content
-        assert '# Another comment' in content
+        assert "# Comment line" in content
+        assert "# Another comment" in content
 
 
 class TestLockIntegration:
@@ -485,7 +470,7 @@ class TestLockIntegration:
 
     def test_lock_with_multiple_processes(self, tmp_path):
         """Test lock behavior with multiple simulated processes."""
-        lock_path = tmp_path / 'test.lock'
+        lock_path = tmp_path / "test.lock"
         results = []
         errors = []
 
@@ -519,7 +504,7 @@ class TestLockIntegration:
 
     def test_lock_timeout_configuration(self, tmp_path):
         """Test configurable lock timeout."""
-        lock_path = tmp_path / 'test.lock'
+        lock_path = tmp_path / "test.lock"
 
         # Acquire lock
         lock1 = FileLock(lock_path, timeout=5.0)
@@ -543,7 +528,7 @@ class TestWithFileLockDecorator:
 
     def test_decorator_basic(self, tmp_path):
         """Test decorator prevents concurrent execution."""
-        lock_path = tmp_path / 'test.lock'
+        lock_path = tmp_path / "test.lock"
         results = []
 
         @with_file_lock(lock_path, timeout=5.0)
@@ -559,7 +544,7 @@ class TestWithFileLockDecorator:
 
         threads = []
         for i in range(3):
-            t = Thread(target=run_concurrent, args=(f't{i}',))
+            t = Thread(target=run_concurrent, args=(f"t{i}",))
             threads.append(t)
             t.start()
 
@@ -572,7 +557,7 @@ class TestWithFileLockDecorator:
 
         # Check ordering - no overlap
         for i in range(0, len(results) - 1, 2):
-            assert results[i + 1].endswith(':end')
+            assert results[i + 1].endswith(":end")
 
 
 class TestCrossPlatformCompatibility:
@@ -581,18 +566,18 @@ class TestCrossPlatformCompatibility:
     def test_lock_path_handling(self, tmp_path):
         """Test lock handles various path types."""
         # Test with Path object
-        lock_path = tmp_path / 'test.lock'
+        lock_path = tmp_path / "test.lock"
         with FileLock(lock_path):
             assert lock_path.exists()
 
         # Test with string path
-        lock_path_str = str(tmp_path / 'test2.lock')
+        lock_path_str = str(tmp_path / "test2.lock")
         with FileLock(lock_path_str):
             assert Path(lock_path_str).exists()
 
     def test_lock_cleanup_on_exception(self, tmp_path):
         """Test lock is released even if exception occurs."""
-        lock_path = tmp_path / 'test.lock'
+        lock_path = tmp_path / "test.lock"
 
         try:
             with FileLock(lock_path):
@@ -605,7 +590,7 @@ class TestCrossPlatformCompatibility:
 
     def test_lock_reuse_after_release(self, tmp_path):
         """Test lock can be reused after release."""
-        lock_path = tmp_path / 'test.lock'
+        lock_path = tmp_path / "test.lock"
 
         lock = FileLock(lock_path, timeout=5.0)
 

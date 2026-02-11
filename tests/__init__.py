@@ -1,3 +1,1 @@
-"""
-Tests for session synchronization system.
-"""
+"""Tests for session synchronization system."""

@@ -1,21 +1,16 @@
-"""
-Benchmark tests for session discovery performance.
+"""Benchmark tests for session discovery performance.
 
 Tests the performance improvement of os.scandir() vs Path.iterdir()
 for large directory trees.
 """
 
 import json
-import os
-import tempfile
 import time
 from datetime import datetime
-from pathlib import Path
-from typing import List
 
 import pytest
 
-from session_sync.core import discover_sessions, DEFAULT_MAX_SESSIONS
+from session_sync.core import discover_sessions
 
 
 class TestBenchmarkSessionDiscovery:
@@ -139,7 +134,7 @@ class TestBenchmarkSessionDiscovery:
         assert len(sessions) == expected_count
 
         # Document performance (not enforced, just logged)
-        print(f"\nCodex discovery performance:")
+        print("\nCodex discovery performance:")
         print(f"  Sessions discovered: {len(sessions)}")
         print(f"  Time elapsed: {elapsed_time:.3f} seconds")
         print(f"  Rate: {len(sessions) / elapsed_time:.1f} sessions/second")
@@ -161,7 +156,7 @@ class TestBenchmarkSessionDiscovery:
         assert len(sessions) == expected_count
 
         # Document performance
-        print(f"\nOpenCode discovery performance:")
+        print("\nOpenCode discovery performance:")
         print(f"  Sessions discovered: {len(sessions)}")
         print(f"  Time elapsed: {elapsed_time:.3f} seconds")
         print(f"  Rate: {len(sessions) / elapsed_time:.1f} sessions/second")
@@ -181,7 +176,7 @@ class TestBenchmarkSessionDiscovery:
         assert len(sessions) == expected_count
 
         # Document performance
-        print(f"\nClaude discovery performance:")
+        print("\nClaude discovery performance:")
         print(f"  Sessions discovered: {len(sessions)}")
         print(f"  Time elapsed: {elapsed_time:.3f} seconds")
         print(f"  Rate: {len(sessions) / elapsed_time:.1f} sessions/second")

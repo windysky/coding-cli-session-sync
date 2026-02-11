@@ -1,51 +1,77 @@
 #!/usr/bin/env python3
-"""
-Export AI tool session to portable archive.
+"""Export AI tool session to portable archive.
 
 This script exports sessions from various AI tools (codex, opencode, claude)
 to .tgz archives that can be transferred to another machine.
 """
 
-import sys
 import argparse
+import sys
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Set
 
-from session_sync.core import (
-    discover_sessions,
-    create_archive,
-    create_archive_multiple,
-    get_hostname,
-    check_disk_space,
-    ensure_directory,
-    ToolType,
-    Session,
-)
-from session_sync.utils import (
-    get_tool_directories,
-    parse_session_selection,
-)
-from session_sync.ui import (
-    clear_screen,
-    print_box_header,
-    print_section,
-    print_separator,
-    print_header,
-    print_success,
-    print_error,
-    print_info,
-    print_warning,
-    print_table_row,
-    action_checkbox,
-    format_size,
-    format_datetime,
-    Colors,
-)
+# Graceful import error handling
+try:
+    from session_sync import __version__
+    from session_sync.core import (
+        Session,
+        ToolType,
+        check_disk_space,
+        create_archive,
+        create_archive_multiple,
+        discover_sessions,
+        ensure_directory,
+        get_hostname,
+    )
+    from session_sync.ui import (
+        Colors,
+        clear_screen,
+        format_datetime,
+        format_size,
+        print_box_header,
+        print_error,
+        print_header,
+        print_info,
+        print_section,
+        print_separator,
+        print_success,
+        print_warning,
+    )
+    from session_sync.utils import (
+        get_tool_directories,
+        parse_session_selection,
+    )
+except ImportError as e:
+    print("=" * 60)
+    print("ERROR: session_sync module not found!")
+    print("=" * 60)
+    print()
+    print("This usually means the package is not installed or you are")
+    print("running from a different Python environment than where it was installed.")
+    print()
+    print("SOLUTIONS:")
+    print()
+    print("1. Install the package:")
+    print("   cd /path/to/coding-cli-session-sync")
+    print("   ./setup.sh")
+    print()
+    print("2. If using conda, make sure you're in the right environment:")
+    print("   conda activate YOUR_ENV_NAME")
+    print("   session-export")
+    print()
+    print("3. If installed, check your PATH includes ~/.local/bin:")
+    print("   echo $PATH | grep local/bin")
+    print()
+    print("4. Try running with the Python interpreter directly:")
+    print("   python -m session_sync.export_session")
+    print()
+    print(f"Import error details: {e}")
+    print("=" * 60)
+    sys.exit(1)
 
 
 def select_tool() -> ToolType:
-    """
-    Prompt user to select AI tool with improved UI.
+    """Prompt user to select AI tool with improved UI.
 
     Returns:
         ToolType: Selected tool type
@@ -59,22 +85,21 @@ def select_tool() -> ToolType:
     while True:
         clear_screen()
 
-        print_box_header(
-            "Session Export",
-            "Select AI tool source | Q=quit"
-        )
+        print_box_header("Session Export", "Select AI tool source | Q=quit")
 
         print_section("SELECT TOOL")
         print_separator()
 
         # Print tool options
-        for i, (tool_id, tool_name) in enumerate(tools, 1):
+        for i, (_tool_id, tool_name) in enumerate(tools, 1):
             print(f"  {Colors.BOLD}{i}.{Colors.RESET}  {tool_name}")
 
         print_separator()
 
         try:
-            choice = input(f"\n{Colors.BOLD}Enter choice (1-3, Q to quit):{Colors.RESET} ").strip()
+            choice = input(
+                f"\n{Colors.BOLD}Enter choice (1-3, Q to quit):{Colors.RESET} "
+            ).strip()
 
             if choice.upper() == "Q":
                 print_warning("\nExport cancelled")
@@ -95,11 +120,10 @@ def select_tool() -> ToolType:
             sys.exit(1)
 
 
-
-
-def display_session_menu(sessions: List[Session], batch_mode: bool = False) -> Optional[List[Session]]:
-    """
-    Display interactive menu for session selection with toggle UI.
+def display_session_menu(
+    sessions: List[Session], batch_mode: bool = False
+) -> Optional[List[Session]]:
+    """Display interactive menu for session selection with toggle UI.
 
     Selection pattern:
     - Enter number to toggle selection (adds/removes checkbox)
@@ -124,7 +148,7 @@ def display_session_menu(sessions: List[Session], batch_mode: bool = False) -> O
         return sessions
 
     # Track selected indices (0-based)
-    selected_indices: set[int] = set()
+    selected_indices: Set[int] = set()
 
     while True:
         clear_screen()
@@ -133,7 +157,7 @@ def display_session_menu(sessions: List[Session], batch_mode: bool = False) -> O
         tool_name = sessions[0].tool.upper() if sessions else "CLAUDE"
         print_box_header(
             f"Session Export - {tool_name}",
-            "Toggle: number to select | C=continue | Q=quit"
+            "Toggle: number to select | C=continue | Q=quit",
         )
 
         print_section("AVAILABLE SESSIONS")
@@ -164,7 +188,9 @@ def display_session_menu(sessions: List[Session], batch_mode: bool = False) -> O
 
             name_display = session.name[:name_width].ljust(name_width)
             id_display = session.session_id[:id_width].ljust(id_width)
-            modified_display = format_datetime(str(session.last_modified)[:19] if session.last_modified else None, 16)
+            modified_display = format_datetime(
+                str(session.last_modified)[:19] if session.last_modified else None, 16
+            )
             size_display = format_size(session.size_bytes).rjust(size_width)
 
             # Checkbox: [✓] if selected, [ ] if not
@@ -187,13 +213,17 @@ def display_session_menu(sessions: List[Session], batch_mode: bool = False) -> O
         # Show selection count
         selected_count = len(selected_indices)
         if selected_count > 0:
-            print(f"\n{Colors.GREEN}Selected: {selected_count}/{len(sessions)} sessions{Colors.RESET}")
+            print(
+                f"\n{Colors.GREEN}Selected: {selected_count}/{len(sessions)} sessions{Colors.RESET}"
+            )
         else:
             print(f"\n{Colors.CYAN}Selected: 0/{len(sessions)} sessions{Colors.RESET}")
 
         # Get user input
         try:
-            choice = input(f"\n{Colors.BOLD}Toggle selection (1-{len(sessions)}, C=continue, Q=quit):{Colors.RESET} ").strip()
+            choice = input(
+                f"\n{Colors.BOLD}Toggle selection (1-{len(sessions)}, C=continue, Q=quit):{Colors.RESET} "
+            ).strip()
 
             # Check for quit
             if choice.upper() == "Q":
@@ -201,16 +231,20 @@ def display_session_menu(sessions: List[Session], batch_mode: bool = False) -> O
                 return None
 
             # Check for continue (empty or 'C')
-            if not choice or choice.upper() == 'C':
+            if not choice or choice.upper() == "C":
                 if not selected_indices:
-                    print_warning("No sessions selected. Please select at least one session or press Q to quit.")
+                    print_warning(
+                        "No sessions selected. Please select at least one session or press Q to quit."
+                    )
                     input("Press Enter to continue...")
                     continue
 
                 # Return selected sessions
                 selected_sessions = [sessions[i] for i in sorted(selected_indices)]
 
-                print_header(f"\n{Colors.GREEN}Exporting {len(selected_sessions)} session(s)...")
+                print_header(
+                    f"\n{Colors.GREEN}Exporting {len(selected_sessions)} session(s)..."
+                )
                 for s in selected_sessions[:3]:
                     print(f"  - {s.name[:60]}")
                 if len(selected_sessions) > 3:
@@ -238,7 +272,9 @@ def display_session_menu(sessions: List[Session], batch_mode: bool = False) -> O
                     # Replace current selection with parsed selection
                     selected_indices = set(indices)
                 else:
-                    print_error("Invalid input. Enter a number, C to continue, or Q to quit.")
+                    print_error(
+                        "Invalid input. Enter a number, C to continue, or Q to quit."
+                    )
                     input("Press Enter to continue...")
 
         except (EOFError, KeyboardInterrupt):
@@ -247,14 +283,13 @@ def display_session_menu(sessions: List[Session], batch_mode: bool = False) -> O
 
 
 def parse_arguments() -> argparse.Namespace:
-    """
-    Parse command-line arguments.
+    """Parse command-line arguments.
 
     Returns:
         argparse.Namespace: Parsed arguments
     """
     parser = argparse.ArgumentParser(
-        description='Export AI tool session to portable archive',
+        description="Export AI tool session to portable archive",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Exit codes:
@@ -277,44 +312,46 @@ Examples:
 
   # Export from specific tool
   %(prog)s --tool claude --batch-mode
-        """
+        """,
     )
 
     parser.add_argument(
-        '--tool',
-        choices=['codex', 'opencode', 'claude'],
-        help='AI tool to export from (default: interactive prompt)'
+        "--tool",
+        choices=["codex", "opencode", "claude"],
+        help="AI tool to export from (default: interactive prompt)",
     )
 
     parser.add_argument(
-        '--force',
-        action='store_true',
-        help='Force overwrite existing archives without prompting'
+        "--force",
+        action="store_true",
+        help="Force overwrite existing archives without prompting",
     )
 
     parser.add_argument(
-        '--no-clobber',
-        action='store_true',
-        help='Skip existing archives without prompting (exit code 2)'
+        "--no-clobber",
+        action="store_true",
+        help="Skip existing archives without prompting (exit code 2)",
     )
 
     parser.add_argument(
-        '--batch-mode',
-        action='store_true',
-        help='Disable all prompts and use sensible defaults (select all sessions)'
+        "--batch-mode",
+        action="store_true",
+        help="Disable all prompts and use sensible defaults (select all sessions)",
     )
 
     parser.add_argument(
-        '--output-dir',
+        "--output-dir",
         type=Path,
-        default=Path.home() / 'OneDrive' / 'Desktop' / 'Current' / '!SyncSessionDoNotDelete!',
-        help='Output directory for archives (default: ~/OneDrive/Desktop/Current/!SyncSessionDoNotDelete!/)'
+        default=Path.home()
+        / "OneDrive"
+        / "Desktop"
+        / "Current"
+        / "!SyncSessionDoNotDelete!",
+        help="Output directory for archives (default: ~/OneDrive/Desktop/Current/!SyncSessionDoNotDelete!/)",
     )
 
     parser.add_argument(
-        '--version',
-        action='version',
-        version='%(prog)s 1.0.0'
+        "--version", action="version", version=f"%(prog)s {__version__}"
     )
 
     return parser.parse_args()
@@ -348,11 +385,17 @@ def main() -> int:
     if not session_dir.exists():
         print_error(f"Session directory not found: {session_dir}")
         if tool == "opencode":
-            print_info("Please ensure OpenCode is installed and has been used at least once.")
+            print_info(
+                "Please ensure OpenCode is installed and has been used at least once."
+            )
         elif tool == "codex":
-            print_info("Please ensure Codex is installed and has been used at least once.")
+            print_info(
+                "Please ensure Codex is installed and has been used at least once."
+            )
         else:
-            print_info("Please ensure Claude Code is installed and has been used at least once.")
+            print_info(
+                "Please ensure Claude Code is installed and has been used at least once."
+            )
         return 1
 
     # Discover sessions
@@ -361,7 +404,9 @@ def main() -> int:
 
     if not sessions:
         print_error("No sessions found")
-        print_info(f"Create a session in {tool.upper()} first, then run this script again.")
+        print_info(
+            f"Create a session in {tool.upper()} first, then run this script again."
+        )
         return 1
 
     # Display menu for session selection (or auto-select in batch mode)
@@ -379,18 +424,23 @@ def main() -> int:
 
     # Generate archive name based on selection
     from datetime import datetime
-    timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
 
     if len(selected_sessions) == 1:
         selected_session = selected_sessions[0]
         tool_prefix = selected_session.tool
-        archive_name = f"{tool_prefix}-session-{selected_session.session_id}-{timestamp}.tgz"
+        archive_name = (
+            f"{tool_prefix}-session-{selected_session.session_id}-{timestamp}.tgz"
+        )
     else:
         tool_prefix = selected_sessions[0].tool if selected_sessions else "claude"
         if len(selected_sessions) == len(sessions):
             archive_name = f"{tool_prefix}-sessions-all-{timestamp}.tgz"
         else:
-            archive_name = f"{tool_prefix}-sessions-{len(selected_sessions)}-{timestamp}.tgz"
+            archive_name = (
+                f"{tool_prefix}-sessions-{len(selected_sessions)}-{timestamp}.tgz"
+            )
 
     archive_path = output_dir / archive_name
 
@@ -399,14 +449,16 @@ def main() -> int:
         if args.force:
             print_info(f"Archive exists, overwriting ( --force ): {archive_path}")
         elif args.no_clobber or args.batch_mode:
-            print_info(f"Archive exists, skipping ( --no-clobber or --batch-mode ): {archive_path}")
+            print_info(
+                f"Archive exists, skipping ( --no-clobber or --batch-mode ): {archive_path}"
+            )
             return 2  # Exit code 2: skipped
         else:
             # Default behavior: prompt
             print_error(f"Archive already exists: {archive_path}")
             try:
                 response = input("Overwrite? (y/N): ").strip().lower()
-                if response != 'y':
+                if response != "y":
                     print_info("Export cancelled")
                     return 1
             except (EOFError, KeyboardInterrupt):
@@ -432,17 +484,16 @@ def main() -> int:
                 session=selected_sessions[0],
                 config_dir=config_dir,
                 output_dir=output_dir,
-                hostname=hostname
+                hostname=hostname,
             )
         else:
             # Use new multi-session export
-            from session_sync.core import create_archive_multiple
             archive_path = create_archive_multiple(
                 sessions=selected_sessions,
                 config_dir=config_dir,
                 output_dir=output_dir,
                 hostname=hostname,
-                archive_name=archive_name
+                archive_name=archive_name,
             )
 
         print_success(f"Archive created: {archive_path}")
@@ -466,5 +517,5 @@ def main() -> int:
         return 1
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

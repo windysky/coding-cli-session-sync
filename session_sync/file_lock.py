@@ -1,36 +1,36 @@
 #!/usr/bin/env python3
-"""
-Cross-platform file locking utilities.
+"""Cross-platform file locking utilities.
 
 Provides file-based locking with retry logic and exponential backoff
 for safe concurrent file access across Windows, Linux, and macOS.
 """
 
-import os
-import time
 import errno
 import logging
-from pathlib import Path
-from typing import Optional, Callable, TypeVar, Iterator
+import os
+import time
 from contextlib import contextmanager
+from pathlib import Path
+from types import TracebackType
+from typing import Callable, Iterator, Optional, Type, TypeVar
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 class FileLockError(IOError):
     """Exception raised when file lock cannot be acquired."""
 
     def __init__(self, message: str, path: Path, attempts: int):
+        """Initialize FileLockError."""
         self.path = path
         self.attempts = attempts
         super().__init__(f"{message} (path: {path}, attempts: {attempts})")
 
 
 class FileLock:
-    """
-    Cross-platform file lock using file-based lock files.
+    """Cross-platform file lock using file-based lock files.
 
     This implementation uses lock files (.lock) with atomic link/rename
     operations for maximum portability across platforms.
@@ -51,8 +51,7 @@ class FileLock:
         retry_interval: float = 0.1,
         max_attempts: Optional[int] = None,
     ):
-        """
-        Initialize file lock.
+        """Initialize file lock.
 
         Args:
             lock_path: Path to the lock file (typically .lock extension)
@@ -68,8 +67,7 @@ class FileLock:
         self._is_locked = False
 
     def acquire(self) -> None:
-        """
-        Acquire the file lock with retry logic.
+        """Acquire the file lock with retry logic.
 
         Raises:
             FileLockError: If lock cannot be acquired within timeout
@@ -108,7 +106,7 @@ class FileLock:
                     f"(attempt {attempt}, {elapsed:.2f}s)"
                 )
                 return
-            except FileLockError as e:
+            except FileLockError:
                 # Lock is held by another process
                 if attempt == 1:
                     logger.debug(f"Lock busy, waiting: {self.lock_path}")
@@ -118,8 +116,7 @@ class FileLock:
                 current_interval = min(current_interval * 1.5, 2.0)
 
     def _try_acquire(self) -> None:
-        """
-        Attempt to acquire lock using atomic file operations.
+        """Attempt to acquire lock using atomic file operations.
 
         Uses O_EXCL | O_CREAT flag which provides atomic lock creation
         on POSIX and Windows systems.
@@ -151,7 +148,9 @@ class FileLock:
                     )
                     # Attempt atomic removal with verification
                     if self._remove_stale_lock(stale_pid):
-                        logger.info(f"Successfully removed stale lock: {self.lock_path}")
+                        logger.info(
+                            f"Successfully removed stale lock: {self.lock_path}"
+                        )
                         # Retry lock acquisition immediately after removing stale lock
                         # This is safe because we've atomically verified the lock was stale
                         return self._try_acquire()
@@ -165,7 +164,7 @@ class FileLock:
 
                 # Lock is held by another process
                 raise FileLockError(
-                    f"Lock already held",
+                    "Lock already held",
                     self.lock_path,
                     1,
                 ) from e
@@ -178,8 +177,7 @@ class FileLock:
             ) from e
 
     def _is_stale_lock(self) -> Optional[int]:
-        """
-        Check if lock file is stale (process no longer running).
+        """Check if lock file is stale (process no longer running).
 
         A lock is considered stale if:
         1. The lock file is older than a threshold (default 1 hour)
@@ -221,9 +219,8 @@ class FileLock:
             return -1  # Error accessing lock, treat as stale
 
     @staticmethod
-    def _is_process_running(pid: int) -> bool:
-        """
-        Check if a process with given PID is running.
+    def _is_process_running(pid: object) -> bool:
+        """Check if a process with given PID is running.
 
         Args:
             pid: Process ID to check
@@ -236,21 +233,27 @@ class FileLock:
         """
         # Validate pid is numeric and positive
         try:
-            pid_int = int(pid)
+            if isinstance(pid, (int, float)):
+                pid_int = int(pid)
+            elif isinstance(pid, str):
+                pid_int = int(pid)
+            else:
+                raise TypeError(f"Invalid PID type: {type(pid).__name__}")
         except (ValueError, TypeError) as e:
             raise ValueError(f"Invalid PID value: {pid}") from e
 
         if pid_int <= 0:
             raise ValueError(f"PID must be a positive integer, got: {pid}")
 
-        if os.name == 'nt':
+        if os.name == "nt":
             # Windows: use tasklist
             import subprocess
+
             try:
                 subprocess.check_output(
-                    ['tasklist', '/FI', f'PID eq {pid_int}'],
+                    ["tasklist", "/FI", f"PID eq {pid_int}"],
                     stderr=subprocess.DEVNULL,
-                    creationflags=subprocess.CREATE_NO_WINDOW,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 )
                 return True
             except (subprocess.CalledProcessError, FileNotFoundError):
@@ -264,8 +267,7 @@ class FileLock:
                 return False
 
     def _remove_stale_lock(self, expected_pid: Optional[int]) -> bool:
-        """
-        Remove stale lock file with atomic verification.
+        """Remove stale lock file with atomic verification.
 
         This method implements TOCTOU-safe lock removal by:
         1. Using atomic operations (os.O_EXCL) to verify lock ownership
@@ -316,7 +318,7 @@ class FileLock:
                 # Attempt atomic removal using exclusive rename
                 # This creates a temporary file and tries to atomically replace
                 # the lock file, which will fail if another process has it open
-                temp_path = self.lock_path.with_suffix('.removal')
+                temp_path = self.lock_path.with_suffix(".removal")
 
                 try:
                     # Create a temporary marker file with O_EXCL
@@ -378,7 +380,9 @@ class FileLock:
                     )
                     time.sleep(retry_delay)
                 else:
-                    logger.warning(f"Failed to remove stale lock after {max_retries} attempts: {e}")
+                    logger.warning(
+                        f"Failed to remove stale lock after {max_retries} attempts: {e}"
+                    )
                     return False
 
         return False
@@ -409,16 +413,21 @@ class FileLock:
         except OSError as e:
             logger.error(f"Error releasing lock {self.lock_path}: {e}")
 
-    def __enter__(self) -> 'FileLock':
+    def __enter__(self) -> "FileLock":
         """Enter context manager and acquire lock."""
         self.acquire()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
+    ) -> None:
         """Exit context manager and release lock."""
         self.release()
 
-    def __del__(self):
+    def __del__(self) -> None:
         """Ensure lock is released on object destruction."""
         self.release()
 
@@ -426,12 +435,11 @@ class FileLock:
 @contextmanager
 def atomic_write(
     file_path: Path,
-    mode: str = 'w',
-    encoding: Optional[str] = 'utf-8',
+    mode: str = "w",
+    encoding: Optional[str] = "utf-8",
     lock_timeout: float = 10.0,
 ) -> Iterator:
-    """
-    Context manager for atomic file writes with locking.
+    """Context manager for atomic file writes with locking.
 
     Writes to a temporary file first, then atomically replaces
     the target file using os.replace(). This ensures that
@@ -452,19 +460,19 @@ def atomic_write(
 
     The file is atomically updated when exiting the context.
     """
-    if 'b' not in mode and encoding is not None:
+    if "b" not in mode and encoding is not None:
         # Text mode
-        import io
+        pass
     else:
         # Binary mode
         encoding = None
 
     # Create temporary file in same directory for atomic replace
     file_path = Path(file_path)
-    temp_path = file_path.with_suffix(f'{file_path.suffix}.tmp')
+    temp_path = file_path.with_suffix(f"{file_path.suffix}.tmp")
 
     # Acquire lock for the target file
-    lock_path = file_path.with_suffix('.lock')
+    lock_path = file_path.with_suffix(".lock")
     lock = FileLock(lock_path, timeout=lock_timeout)
 
     with lock:
@@ -472,7 +480,7 @@ def atomic_write(
         f = None
         try:
             # Write to temporary file
-            if 'b' in mode:
+            if "b" in mode:
                 f = open(temp_path, mode)
             else:
                 f = open(temp_path, mode, encoding=encoding)
@@ -506,8 +514,7 @@ def with_file_lock(
     timeout: float = 10.0,
     retry_interval: float = 0.1,
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
-    """
-    Decorator to execute function with file lock.
+    """Decorator to execute function with file lock.
 
     Args:
         lock_path: Path to the lock file
@@ -523,10 +530,13 @@ def with_file_lock(
             # This code is protected from concurrent execution
             pass
     """
+
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
-        def wrapper(*args, **kwargs) -> T:
+        def wrapper(*args: object, **kwargs: object) -> T:
             lock = FileLock(lock_path, timeout=timeout, retry_interval=retry_interval)
             with lock:
                 return func(*args, **kwargs)
+
         return wrapper
+
     return decorator

@@ -222,6 +222,6 @@ Users are encouraged to upgrade immediately due to the critical security fixes.
 
 ## Links
 
-- [Repository](https://github.com/example/session-sync)
-- [Issue Tracker](https://github.com/example/session-sync/issues)
-- [Documentation](https://github.com/example/session-sync#readme)
+- [Repository](https://github.com/windysky/coding-cli-session-sync)
+- [Issue Tracker](https://github.com/windysky/coding-cli-session-sync/issues)
+- [Documentation](https://github.com/windysky/coding-cli-session-sync#readme)

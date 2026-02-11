@@ -1,5 +1,4 @@
-"""
-Tests for comprehensive OpenCode export/import including all session data.
+"""Tests for comprehensive OpenCode export/import including all session data.
 
 This test suite verifies that OpenCode archives include:
 - Main session JSON file from storage/session/global/
@@ -10,19 +9,15 @@ This test suite verifies that OpenCode archives include:
 
 import json
 import tarfile
-import tempfile
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import patch, MagicMock
-
-import pytest
+from unittest.mock import patch
 
 from session_sync.core import (
-    Session,
     Metadata,
+    Session,
     create_archive,
     extract_archive,
-    Archive
 )
 
 
