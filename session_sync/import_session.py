@@ -5,6 +5,7 @@ This script imports sessions from various AI tools (codex, opencode, claude)
 from .tgz archives created by the export script.
 """
 
+import argparse
 import json
 import logging
 import os
@@ -33,6 +34,7 @@ try:
         Archive,
         check_disk_space,
         discover_archives,
+        discover_sessions,
         ensure_directory,
         extract_archive,
     )
@@ -620,19 +622,36 @@ def select_sessions_from_archive(
 
     # Get tool directories for existence check
     try:
-        session_dir, _ = get_tool_directories(tool)
+        session_dir, config_dir = get_tool_directories(tool)
     except (ValueError, OSError):
         session_dir = None
+        config_dir = None
+
+    existing_codex_ids: Set[str] = set()
+    if tool == "codex" and session_dir is not None and session_dir.exists():
+        try:
+            existing_codex_ids = {
+                s.session_id
+                for s in discover_sessions(
+                    session_dir, tool="codex", max_sessions=200000
+                )
+            }
+        except Exception:
+            existing_codex_ids = set()
 
     # Pre-check which sessions exist locally and auto-select new ones
     session_exists = []
     for session in session_details:
         session_id_str = session["session_id"]
         exists_locally = False
-        if session_dir:
+        if tool == "claude" and config_dir is not None:
+            old_session = config_dir / "sessions" / session_id_str
+            new_session = config_dir / "session-env" / session_id_str
+            exists_locally = old_session.exists() or new_session.exists()
+        elif session_dir:
             if tool == "claude":
-                old_session = session_dir / "sessions" / session_id_str
-                new_session = session_dir / "session-env" / session_id_str
+                old_session = session_dir.parent / "sessions" / session_id_str
+                new_session = session_dir.parent / "session-env" / session_id_str
                 exists_locally = old_session.exists() or new_session.exists()
             elif tool == "opencode":
                 # OpenCode stores sessions directly as {session_id}.json in session_dir
@@ -640,10 +659,7 @@ def select_sessions_from_archive(
                 session_path = session_dir / f"{session_id_str}.json"
                 exists_locally = session_path.exists()
             elif tool == "codex":
-                # For Codex, check if the session directory exists
-                # Codex uses year/month structure, so we check if session_id path exists
-                session_path = session_dir / session_id_str
-                exists_locally = session_path.exists()
+                exists_locally = session_id_str in existing_codex_ids
         session_exists.append(exists_locally)
 
     # Auto-select sessions that DON'T exist locally (smart default)
@@ -1060,15 +1076,27 @@ def check_any_session_exists(archive: "Archive") -> bool:
         return False
 
     try:
-        session_dir, _ = get_tool_directories(tool)
+        session_dir, config_dir = get_tool_directories(tool)
     except (ValueError, OSError):
         return False
+
+    if tool == "codex" and session_dir.exists():
+        try:
+            existing_ids = {
+                s.session_id
+                for s in discover_sessions(
+                    session_dir, tool="codex", max_sessions=200000
+                )
+            }
+        except Exception:
+            existing_ids = set()
+        return any(session_id in existing_ids for session_id in session_ids)
 
     # Check if any session exists locally
     for session_id in session_ids:
         if tool == "claude":
-            old_session = session_dir / "sessions" / session_id
-            new_session = session_dir / "session-env" / session_id
+            old_session = config_dir / "sessions" / session_id
+            new_session = config_dir / "session-env" / session_id
             if old_session.exists() or new_session.exists():
                 return True
         elif tool == "opencode":
@@ -1078,8 +1106,7 @@ def check_any_session_exists(archive: "Archive") -> bool:
             if session_path.exists():
                 return True
         elif tool == "codex":
-            if session_dir.exists():
-                return True
+            continue
 
     return False
 
@@ -1139,8 +1166,66 @@ def check_session_conflicts(session_ids: List[str], session_dir: Path) -> List[s
     return conflicts
 
 
+def install_codex_sessions_from_extracted(
+    extracted_root: Path,
+    selected_session_ids: List[str],
+    target_codex_dir: Optional[Path] = None,
+) -> int:
+    """Install Codex sessions from an extracted archive tree.
+
+    Args:
+        extracted_root: Root directory where the archive was extracted
+        selected_session_ids: Session directory names to install (empty = all)
+        target_codex_dir: Target Codex config directory (defaults to ~/.codex)
+    """
+    extracted_codex = extracted_root / ".codex"
+    extracted_sessions_root = extracted_codex / "sessions"
+    if not extracted_sessions_root.exists():
+        raise OSError("No .codex/sessions found in extracted archive")
+
+    if target_codex_dir is None:
+        target_codex_dir = Path.home() / ".codex"
+
+    target_sessions_root = target_codex_dir / "sessions"
+    to_copy: List[Path] = []
+
+    for candidate in extracted_sessions_root.rglob("*"):
+        if not candidate.is_dir():
+            continue
+        if not list(candidate.glob("rollout-*.jsonl")):
+            continue
+        if selected_session_ids and candidate.name not in selected_session_ids:
+            continue
+        to_copy.append(candidate)
+
+    if not to_copy:
+        raise OSError("No Codex sessions found in extracted archive")
+
+    for src_session_dir in to_copy:
+        rel = src_session_dir.relative_to(extracted_sessions_root)
+        dest_session_dir = target_sessions_root / rel
+        dest_session_dir.parent.mkdir(parents=True, exist_ok=True)
+        if dest_session_dir.exists():
+            shutil.rmtree(dest_session_dir)
+        shutil.copytree(src_session_dir, dest_session_dir)
+
+    for item in extracted_codex.rglob("*"):
+        if not item.is_file():
+            continue
+        rel_item = item.relative_to(extracted_codex)
+        if rel_item.parts and rel_item.parts[0] == "sessions":
+            continue
+        target_item = target_codex_dir / rel_item
+        target_item.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(item, target_item)
+
+    return len(to_copy)
+
+
 def transaction_copy_sessions(
-    source_session_env: Path, target_session_dir: Path
+    source_session_env: Path,
+    target_session_dir: Path,
+    allowed_session_ids: Optional[Set[str]] = None,
 ) -> int:
     """Copy session directories with transaction safety.
 
@@ -1153,6 +1238,7 @@ def transaction_copy_sessions(
     Args:
         source_session_env: Source directory containing session subdirectories
         target_session_dir: Target directory for sessions
+        allowed_session_ids: Optional allowlist of session IDs to copy
 
     Returns:
         Number of sessions copied
@@ -1175,6 +1261,11 @@ def transaction_copy_sessions(
         for session_path in source_session_env.iterdir():
             if session_path.is_dir():
                 session_id = session_path.name
+                if (
+                    allowed_session_ids is not None
+                    and session_id not in allowed_session_ids
+                ):
+                    continue
                 target_session = target_session_dir / session_id
 
                 if target_session.exists():
@@ -1252,6 +1343,7 @@ def merge_claude_history(
     target_history: Path,
     archive_history: Path,
     lock_timeout: float = 30.0,
+    allowed_session_ids: Optional[Set[str]] = None,
 ) -> Tuple[int, int]:
     """Merge archive history into target history with file locking.
 
@@ -1265,6 +1357,7 @@ def merge_claude_history(
         target_history: Path to target's history.jsonl
         archive_history: Path to archive's history.jsonl
         lock_timeout: Maximum time to wait for file lock (seconds)
+        allowed_session_ids: Optional allowlist of session IDs to merge
 
     Returns:
         Tuple of (added_count, skipped_count)
@@ -1355,6 +1448,12 @@ def merge_claude_history(
                             continue
 
                         session_id = data.get("sessionId")
+                        if (
+                            allowed_session_ids is not None
+                            and session_id not in allowed_session_ids
+                        ):
+                            skipped += 1
+                            continue
                         if session_id and session_id not in existing_ids:
                             new_lines.append(line_stripped)
                             existing_ids.add(session_id)
@@ -1421,9 +1520,33 @@ def merge_claude_history(
 
 def main() -> int:
     """Main import function."""
-    archive_dir = (
-        Path.home() / "OneDrive" / "Desktop" / "Current" / "!SyncSessionDoNotDelete!"
+    parser = argparse.ArgumentParser(
+        description="Import AI tool session from portable archive"
     )
+    parser.add_argument(
+        "--archive-dir",
+        type=Path,
+        default=Path.home()
+        / "OneDrive"
+        / "Desktop"
+        / "Current"
+        / "!SyncSessionDoNotDelete!",
+        help="Archive directory (default: ~/OneDrive/Desktop/Current/!SyncSessionDoNotDelete!/)",
+    )
+    parser.add_argument(
+        "--config-dir",
+        type=Path,
+        default=None,
+        help="Override tool config dir (e.g. ~/.claude, ~/.codex)",
+    )
+    parser.add_argument(
+        "--session-dir",
+        type=Path,
+        default=None,
+        help="Override tool session dir (e.g. ~/.claude/session-env, ~/.codex/sessions)",
+    )
+    args = parser.parse_args()
+    archive_dir = args.archive_dir
 
     print_info("AI Tool Session Import")
     print_info("=" * 40)
@@ -1472,7 +1595,20 @@ def main() -> int:
             tool = "opencode"
         else:
             tool = "claude"
-    session_dir, _config_dir = get_tool_directories(tool)
+    session_dir, config_dir = get_tool_directories(tool)
+    if args.config_dir is not None:
+        config_dir = args.config_dir
+        if args.session_dir is None:
+            if tool == "codex":
+                session_dir = config_dir / "sessions"
+            elif tool == "claude":
+                session_env_dir = config_dir / "session-env"
+                sessions_dir = config_dir / "sessions"
+                session_dir = (
+                    session_env_dir if session_env_dir.exists() else sessions_dir
+                )
+    if args.session_dir is not None:
+        session_dir = args.session_dir
 
     # Validate checksum
     print_info("Validating archive integrity...")
@@ -1623,12 +1759,14 @@ def main() -> int:
                         # Also check for history.jsonl
                         history_file = session_dir_item / ".claude" / "history.jsonl"
                         if history_file.exists():
-                            target_history = Path.home() / ".claude" / "history.jsonl"
+                            target_history = config_dir / "history.jsonl"
                             target_history.parent.mkdir(parents=True, exist_ok=True)
                             if not target_history.exists():
                                 target_history.write_text("")
                             added, skipped = merge_claude_history(
-                                target_history, history_file
+                                target_history,
+                                history_file,
+                                allowed_session_ids={session_id_from_dir},
                             )
                             if added > 0:
                                 print_success(
@@ -1671,57 +1809,44 @@ def main() -> int:
             elif tool == "codex":
                 # Handle codex session
                 print_info("Installing codex session...")
-                # Find the extracted session directory
-                extracted_session_dir = None
-                for item in temp_path.iterdir():
-                    if item.is_dir() and item.name.startswith("2026"):
-                        # This is the year directory, navigate to the actual session
-                        for year_dir in item.iterdir():
-                            if year_dir.is_dir():
-                                for session_dir_item in year_dir.iterdir():
-                                    if session_dir_item.is_dir():
-                                        extracted_session_dir = session_dir_item
-                                        break
-                                if extracted_session_dir:
-                                    break
-                            if extracted_session_dir:
-                                break
-                    if extracted_session_dir:
-                        break
+                extracted_codex = temp_path / ".codex"
+                extracted_sessions_root = extracted_codex / "sessions"
 
-                if not extracted_session_dir:
-                    # Fallback: look for any directory containing rollout files
+                if extracted_sessions_root.exists():
+                    imported = install_codex_sessions_from_extracted(
+                        temp_path,
+                        selected_session_ids,
+                        target_codex_dir=config_dir,
+                    )
+                    print_success(f"Imported {imported} codex session(s)")
+
+                else:
+                    extracted_session_dir = None
                     for item in temp_path.rglob("*"):
                         if item.is_dir() and list(item.glob("rollout-*.jsonl")):
+                            if (
+                                selected_session_ids
+                                and item.name not in selected_session_ids
+                            ):
+                                continue
                             extracted_session_dir = item
                             break
 
-                if not extracted_session_dir:
-                    raise OSError("Could not find codex session directory in archive")
+                    if not extracted_session_dir:
+                        raise OSError(
+                            "Could not find codex session directory in archive"
+                        )
 
-                # Determine target path (year/month structure)
-                # Use current year/month for import
-                from datetime import datetime
+                    from datetime import datetime
 
-                now = datetime.now()
-                target_path = session_dir / str(now.year) / f"{now.month:02d}"
-                target_path.mkdir(parents=True, exist_ok=True)
+                    now = datetime.now()
+                    target_path = session_dir / str(now.year) / f"{now.month:02d}"
+                    target_path.mkdir(parents=True, exist_ok=True)
 
-                # Copy the entire session directory
-                target_session = target_path / extracted_session_dir.name
-                if target_session.exists():
-                    shutil.rmtree(target_session)
-                shutil.copytree(extracted_session_dir, target_session)
-
-                # Handle .codex config files if present
-                extracted_codex = temp_path / ".codex"
-                if extracted_codex.exists():
-                    print_info("Updating .codex configuration...")
-                    for item in extracted_codex.rglob("*"):
-                        if item.is_file():
-                            target_item = Path.home() / ".codex" / item.name
-                            target_item.parent.mkdir(parents=True, exist_ok=True)
-                            shutil.copy2(item, target_item)
+                    target_session = target_path / extracted_session_dir.name
+                    if target_session.exists():
+                        shutil.rmtree(target_session)
+                    shutil.copytree(extracted_session_dir, target_session)
 
             else:
                 # Handle claude session with merge support
@@ -1732,7 +1857,7 @@ def main() -> int:
                     print_info("Merging sessions using merge mode...")
 
                     # Get target history path
-                    target_history = Path.home() / ".claude" / "history.jsonl"
+                    target_history = config_dir / "history.jsonl"
 
                     # Ensure target directory exists
                     target_history.parent.mkdir(parents=True, exist_ok=True)
@@ -1742,8 +1867,13 @@ def main() -> int:
                         target_history.write_text("")
 
                     # Merge histories
+                    allowed_ids = (
+                        set(selected_session_ids) if selected_session_ids else None
+                    )
                     added, skipped = merge_claude_history(
-                        target_history, extracted_history
+                        target_history,
+                        extracted_history,
+                        allowed_session_ids=allowed_ids,
                     )
                     print_info(f"Sessions added: {added}, skipped: {skipped}")
 
@@ -1754,7 +1884,9 @@ def main() -> int:
                         print_info("Adding new session environments...")
                         try:
                             added_count = transaction_copy_sessions(
-                                extracted_session_env, session_dir
+                                extracted_session_env,
+                                session_dir,
+                                allowed_session_ids=allowed_ids,
                             )
                             print_info(f"Successfully added {added_count} session(s)")
                         except OSError as e:
@@ -1774,10 +1906,8 @@ def main() -> int:
                                     item
                                 ):
                                     continue
-                                target_item = (
-                                    Path.home()
-                                    / ".claude"
-                                    / item.relative_to(extracted_claude)
+                                target_item = config_dir / item.relative_to(
+                                    extracted_claude
                                 )
                                 # Only copy if target doesn't exist (merge behavior)
                                 if not target_item.exists():
@@ -1799,7 +1929,7 @@ def main() -> int:
 
                     # Handle history.jsonl
                     if extracted_history.exists():
-                        target_history = Path.home() / ".claude" / "history.jsonl"
+                        target_history = config_dir / "history.jsonl"
                         target_history.parent.mkdir(parents=True, exist_ok=True)
                         shutil.copy2(extracted_history, target_history)
 
@@ -1825,10 +1955,8 @@ def main() -> int:
                                     item
                                 ):
                                     continue
-                                target_item = (
-                                    Path.home()
-                                    / ".claude"
-                                    / item.relative_to(extracted_claude)
+                                target_item = config_dir / item.relative_to(
+                                    extracted_claude
                                 )
                                 target_item.parent.mkdir(parents=True, exist_ok=True)
                                 shutil.copy2(item, target_item)

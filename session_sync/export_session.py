@@ -351,6 +351,20 @@ Examples:
     )
 
     parser.add_argument(
+        "--config-dir",
+        type=Path,
+        default=None,
+        help="Override tool config dir (e.g. ~/.claude, ~/.codex, ~/.local/share/opencode)",
+    )
+
+    parser.add_argument(
+        "--session-dir",
+        type=Path,
+        default=None,
+        help="Override tool session dir (e.g. ~/.claude/session-env, ~/.codex/sessions)",
+    )
+
+    parser.add_argument(
         "--version", action="version", version=f"%(prog)s {__version__}"
     )
 
@@ -380,6 +394,23 @@ def main() -> int:
 
     # Get directories for selected tool
     session_dir, config_dir = get_tool_directories(tool)
+
+    if args.config_dir is not None:
+        config_dir = args.config_dir
+        if args.session_dir is None:
+            if tool == "opencode":
+                session_dir = config_dir / "storage" / "session" / "global"
+            elif tool == "codex":
+                session_dir = config_dir / "sessions"
+            else:
+                session_env_dir = config_dir / "session-env"
+                sessions_dir = config_dir / "sessions"
+                session_dir = (
+                    session_env_dir if session_env_dir.exists() else sessions_dir
+                )
+
+    if args.session_dir is not None:
+        session_dir = args.session_dir
 
     # Validate session directory
     if not session_dir.exists():

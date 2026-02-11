@@ -635,7 +635,8 @@ class TestMultiSessionExport:
     def test_export_multiple_codex_sessions(self, tmp_path):
         """Test exporting multiple Codex sessions with directories."""
         sessions = []
-        codex_base = tmp_path / "2026"
+        codex_dir = tmp_path / ".codex"
+        codex_base = codex_dir / "sessions" / "2026"
 
         for i in range(2):
             month_dir = codex_base / f"{i + 1:02d}"
@@ -661,7 +662,7 @@ class TestMultiSessionExport:
         with patch("session_sync.core.get_hostname", return_value="test-host"):
             archive_path = create_archive_multiple(
                 sessions=sessions,
-                config_dir=tmp_path,
+                config_dir=codex_dir,
                 output_dir=output_dir,
                 hostname="test-host",
                 archive_name=archive_name,

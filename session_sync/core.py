@@ -880,14 +880,20 @@ def _build_archive_contents(
             if session.session_path.is_dir():
                 for item in session.session_path.rglob("*"):
                     if item.is_file():
-                        # Preserve directory structure
-                        rel_path = item.relative_to(session.session_path.parent.parent)
-                        tar.add(item, arcname=rel_path)
+                        try:
+                            rel_path = item.relative_to(config_dir)
+                            tar.add(item, arcname=f".codex/{rel_path}")
+                        except ValueError:
+                            rel_path = item.relative_to(session.session_path)
+                            tar.add(
+                                item,
+                                arcname=f".codex/sessions/{session.session_id}/{rel_path}",
+                            )
                         file_count += 1
 
         # Add codex config files if available (only once for multi-session)
         # SECURITY: Only include non-auth config files
-        codex_config_dir = Path.home() / ".codex"
+        codex_config_dir = config_dir
         if codex_config_dir.exists():
             for config_file in ["config.toml"]:
                 config_path = codex_config_dir / config_file
@@ -913,8 +919,44 @@ def _build_archive_contents(
 
             # Add history.jsonl (contains all session conversations)
             if history_file.exists():
-                tar.add(history_file, arcname=".claude/history.jsonl")
-                file_count += 1
+                import tempfile
+
+                allowed_ids = {s.session_id for s in sessions}
+                tmp_path = None
+                try:
+                    with tempfile.NamedTemporaryFile(
+                        mode="w",
+                        delete=False,
+                        encoding="utf-8",
+                        prefix="claude-history-",
+                        suffix=".jsonl",
+                    ) as tmp:
+                        tmp_path = Path(tmp.name)
+                        with open(history_file, encoding="utf-8") as f:
+                            for line in f:
+                                line_stripped = line.strip()
+                                if not line_stripped:
+                                    continue
+                                if line_stripped.startswith("#"):
+                                    tmp.write(line_stripped + "\n")
+                                    continue
+                                try:
+                                    data = json.loads(line_stripped)
+                                except json.JSONDecodeError:
+                                    continue
+                                if (
+                                    isinstance(data, dict)
+                                    and data.get("sessionId") in allowed_ids
+                                ):
+                                    tmp.write(line_stripped + "\n")
+                    tar.add(tmp_path, arcname=".claude/history.jsonl")
+                    file_count += 1
+                finally:
+                    if tmp_path is not None:
+                        try:
+                            tmp_path.unlink()
+                        except OSError:
+                            pass
 
             # Add the session's environment directories from session-env
             for session in sessions:

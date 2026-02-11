@@ -23,6 +23,7 @@
   - Quality gates currently pass: `pytest`, `ruff check session_sync/ tests/`, `mypy session_sync/`.
   - Distribution metadata cleanup: `LICENSE` added; `pyproject.toml` author/email updated; stdlib-only dependency removed.
   - Local repo hygiene: `.gitignore` updated to ignore local artifacts; `origin` remote updated to renamed GitHub repo.
+  - Claude/Codex robustness: Claude uses `session-env` when present; Codex sessions preserved under `.codex/sessions/YYYY/MM/`; path override flags added.
 - Partially implemented features:
   - None.
 - Not started items:
@@ -117,6 +118,55 @@
   - Used `windysky@users.noreply.github.com` as a default author email for packaging metadata.
 - Problems encountered and how they were addressed:
   - Noted that an earlier log entry referenced `PROJECT_STATE.md`; this project now treats `PROJECT_HANDOFF.md` as authoritative.
+
+### Session Update 2026-02-10 22:13 CST
+
+- Goals for the session:
+  - Make Claude Code and Codex behavior clearer and more robust; add overrides for unknown Codex layouts (`codex-cli 0.98.0`).
+- What was implemented or changed:
+  - Claude: `get_tool_directories()` now prefers `~/.claude/session-env` when present.
+  - Claude: selective import/export now filters `history.jsonl` by selected `sessionId`s.
+  - Codex: archive now preserves `.codex/sessions/YYYY/MM/<session>/...` and import restores the same structure.
+  - Added CLI overrides:
+    - `session-export`: `--config-dir`, `--session-dir`
+    - `session-import`: `--archive-dir`, `--config-dir`, `--session-dir`
+  - Added tests covering Claude filtering and Codex path preservation.
+  - Updated `README.md` with override examples and Codex layout caveat.
+- Files/modules/functions touched:
+  - `session_sync/utils.py`
+  - `session_sync/core.py`
+  - `session_sync/export_session.py`
+  - `session_sync/import_session.py`
+  - `README.md`
+  - `tests/test_tool_support.py`
+  - `tests/test_claude_selective.py`
+  - `tests/test_codex_paths.py`
+  - `PROJECT_LOG.md`
+  - `PROJECT_HANDOFF.md`
+- Key technical decisions:
+  - Treat Codex sessions/config as `.codex/`-rooted in archives to make import unambiguous.
+  - Keep a safe escape hatch for unknown layouts via CLI overrides.
+- Problems encountered and how they were addressed:
+  - `ruff` docstring checks required minimal docstrings for new public functions and new tests.
+
+### Session Update 2026-02-10 22:17 CST
+
+- Goals for the session:
+  - Cut a minor release for the Claude/Codex robustness work.
+- What was implemented or changed:
+  - Version bumped to `1.6.0`.
+  - Release notes added/updated in `CHANGELOG.md` and `README.md`.
+- Files/modules/functions touched:
+  - `session_sync/__init__.py`
+  - `pyproject.toml`
+  - `CHANGELOG.md`
+  - `README.md`
+  - `PROJECT_LOG.md`
+  - `PROJECT_HANDOFF.md`
+- Key technical decisions:
+  - Minor version bump for behavior changes in Claude/Codex handling.
+- Problems encountered and how they were addressed:
+  - None.
 
 ## 4. Outstanding Tasks (living section — update as needed)
 

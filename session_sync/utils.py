@@ -66,10 +66,10 @@ def get_tool_directories(tool: str) -> Tuple[Path, Path]:
         config_dir = home_dir / ".codex"
     else:
         # claude (default)
-        # For export: session-env directory for session IDs
-        # For import: sessions directory
-        session_dir = home_dir / ".claude" / "sessions"
         config_dir = home_dir / ".claude"
+        session_env_dir = config_dir / "session-env"
+        sessions_dir = config_dir / "sessions"
+        session_dir = session_env_dir if session_env_dir.exists() else sessions_dir
 
     return session_dir, config_dir
 

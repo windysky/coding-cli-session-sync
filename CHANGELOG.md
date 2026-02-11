@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-02-10
+
+### Added
+- `--config-dir` / `--session-dir` overrides for `session-export`
+- `--archive-dir` / `--config-dir` / `--session-dir` overrides for `session-import`
+
+### Fixed
+- Claude new-format directory wiring now prefers `~/.claude/session-env` when present
+- Claude selective import/export now filters `history.jsonl` by selected `sessionId`s
+- Codex export/import now preserves date-based session hierarchy under `.codex/sessions/YYYY/MM/`
+
+### Changed
+- Codex archives now store session data under a `.codex/` root to make restores unambiguous
+
 ## [1.5.0] - 2026-02-07
 
 ### Added

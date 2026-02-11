@@ -4,4 +4,4 @@ Provides export and import functionality for Claude Code sessions
 across multiple machines via OneDrive synchronization.
 """
 
-__version__ = "1.5.0"
+__version__ = "1.6.0"

@@ -56,6 +56,14 @@ From the source machine (where the session exists):
 session-export
 ```
 
+Optional overrides (useful if your tool stores sessions elsewhere):
+
+```bash
+# Override tool paths
+session-export --tool claude --config-dir ~/.claude --session-dir ~/.claude/session-env
+session-export --tool codex --config-dir ~/.codex --session-dir ~/.codex/sessions
+```
+
 The script will:
 1. Prompt you to select the AI tool (codex, opencode, or claude)
 2. Scan the appropriate directory for available sessions
@@ -77,6 +85,15 @@ From the target machine (where you want to restore the session):
 
 ```bash
 session-import
+```
+
+Optional overrides:
+
+```bash
+# Override archive folder and/or tool paths
+session-import --archive-dir ~/OneDrive/Desktop/Current/!SyncSessionDoNotDelete!
+session-import --config-dir ~/.claude --session-dir ~/.claude/session-env
+session-import --config-dir ~/.codex --session-dir ~/.codex/sessions
 ```
 
 The script will:
@@ -107,6 +124,8 @@ The script will:
 - **Session Directory**: `~/.codex/sessions/YYYY/MM/`
 - **Configuration**: `~/.codex/config.toml`
 - **Session ID Format**: Directory name (variable length)
+
+Note: This project assumes a date-based Codex layout. If you're using `codex-cli 0.98.0` (or another build) and the layout differs, use `--config-dir` / `--session-dir` overrides.
 
 ### OpenCode
 
@@ -228,6 +247,12 @@ MIT License - See LICENSE file for details
 See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
 
 ### Recent Releases
+
+- **1.6.0** (2026-02-10): Claude/Codex Robustness
+  - Claude new-format uses `~/.claude/session-env` when present
+  - Claude selective import/export filters `history.jsonl` by selected `sessionId`s
+  - Codex archives preserve `.codex/sessions/YYYY/MM/` structure
+  - Added path override flags for unknown layouts
 
 - **1.5.0** (2026-02-07): Package Structure & Bug Fixes
   - Added setup.sh for easy installation to ~/.local/bin
