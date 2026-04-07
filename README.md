@@ -1,15 +1,26 @@
 # AI Tool Session Synchronization System
 
-Export and import sessions from multiple AI tools (Claude Code, Codex, OpenCode) across machines via OneDrive synchronization.
+> **Archived (April 2026)**: This project is no longer actively maintained. It remains available as a reference implementation. See [Why Archived?](#why-archived) below.
 
-## Overview
+Export and import sessions from multiple AI coding CLI tools (Claude Code, Codex CLI, OpenCode) across machines via portable archives.
 
-This system provides command-line tools that allow you to:
+## The Problem
+
+AI coding CLI tools like Claude Code, Codex CLI, and OpenCode store session and conversation history **locally on each machine**. There is no built-in way to access your sessions from another computer. If you work across a desktop and a laptop — or even across different project directories on the same machine — your session histories are siloed and inaccessible from the other location.
+
+As of April 2026, none of these tools offer native cross-machine session sync. Multiple community feature requests exist (e.g., [anthropics/claude-code#31992](https://github.com/anthropics/claude-code/issues/31992), [#25739](https://github.com/anthropics/claude-code/issues/25739)) but none have received official commitment.
+
+## What This Project Does
+
+This project provides CLI tools to bridge that gap:
 
 1. **Export** sessions (conversation history + configuration) to portable `.tgz` archives
-2. **Import** session archives to another machine, restoring sessions and configuration
+2. **Import** session archives on another machine, restoring sessions and configuration
 3. **Multi-session support**: Export/import multiple sessions at once
 4. **Selective import**: Choose which sessions to import from multi-session archives
+5. **Session cleanup**: Selectively delete local sessions with dry-run safety
+
+Archives can be synced via any shared filesystem (OneDrive, Dropbox, network drive, USB, etc.).
 
 ## Supported Tools
 
@@ -262,6 +273,20 @@ ruff check session_sync/ tests/ --fix
 # Type check
 mypy session_sync/
 ```
+
+## Why Archived?
+
+This project was archived in April 2026 after an independent evaluation concluded that continued development is not justified:
+
+- **Path-hash problem**: Claude Code (v2.1.9+) keys sessions to the absolute project path (e.g., `/home/alice/projects/myapp` becomes `-home-alice-projects-myapp`). If the path differs on the target machine, Claude Code won't recognize imported sessions even though the files are in place. This project does not solve that fundamental portability barrier.
+- **Format instability**: Each supported tool (Claude Code, Codex CLI, OpenCode) can change its storage format at any time. The project already had to adapt to two Claude storage format changes and a Codex session ID format change within a single development cycle.
+- **Narrow audience**: Requires specific conditions (same tool versions, compatible paths, shared filesystem) that limit practical utility.
+- **Likely future obsolescence**: AI coding tools are expected to eventually add native session sync, though no timeline has been committed.
+
+The codebase remains available as a reference for:
+- Cross-platform file locking with stale lock detection (`session_sync/file_lock.py`)
+- Secure archive handling (path traversal protection, credential filtering, archive bomb prevention)
+- Multi-tool session discovery patterns for Claude Code, Codex CLI, and OpenCode
 
 ## License
 
